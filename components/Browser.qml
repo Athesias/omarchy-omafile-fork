@@ -556,6 +556,8 @@ Item {
           label: root.isBookmarked(entry.path) ? "Remove bookmark" : "Add to bookmarks",
           glyph: Icons.placeGlyph("pinned")
         })
+        items.push({ key: "terminal", label: "Open in terminal", glyph: Icons.actionGlyph("terminal") })
+        items.push({ key: "claude", label: "Open Claude Code here", glyph: Icons.actionGlyph("terminal") })
       }
       items.push({ key: "sep1", label: "", glyph: "" })
       items.push({ key: "copy", label: "Copy", glyph: Icons.actionGlyph("copy") })
@@ -582,6 +584,7 @@ Item {
         glyph: Icons.placeGlyph("pinned")
       })
       items.push({ key: "terminal", label: "Open in terminal", glyph: Icons.actionGlyph("terminal") })
+      items.push({ key: "claude", label: "Open Claude Code here", glyph: Icons.actionGlyph("terminal") })
       items.push({ key: "refresh", label: "Refresh", glyph: Icons.actionGlyph("refresh") })
     }
     return items
@@ -608,7 +611,8 @@ Item {
     else if (key === "newfolder") showDialog("newfolder", "New folder", "untitled folder", null)
     else if (key === "newfile") showDialog("newfile", "New file", "untitled", null)
     else if (key === "bookmark") service.togglePinned(entry && entry.isDir ? entry.path : p.path)
-    else if (key === "terminal") service.openTerminal(p.path)
+    else if (key === "terminal") service.openTerminal(entry && entry.isDir ? entry.path : p.path)
+    else if (key === "claude") service.openClaude(entry && entry.isDir ? entry.path : p.path)
     else if (key === "refresh") p.refresh()
   }
   property bool previewOpen: false

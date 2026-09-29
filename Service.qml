@@ -733,8 +733,14 @@ Item {
 
   function openTerminal(path) {
     var configured = String(setting("terminal", "") || "").trim()
-    if (configured) Quickshell.execDetached(["sh", "-c", configured, "omafile"])
-    else Quickshell.execDetached(["xdg-terminal-exec"])
+    if (configured) Quickshell.execDetached(["sh", "-c", "cd \"$1\" && exec " + configured, "omafile", path])
+    else Quickshell.execDetached(["setsid", "uwsm-app", "--", "xdg-terminal-exec", "--dir=" + path])
+  }
+
+  function openClaude(path) {
+    // Drop into a shell when Claude exits instead of closing the window
+    Quickshell.execDetached(["setsid", "uwsm-app", "--", "xdg-terminal-exec", "--dir=" + path,
+      "bash", "-c", "claude; exec bash"])
   }
 
   function openEditor(path) {
