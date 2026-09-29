@@ -835,6 +835,25 @@ Item {
     })
   }
 
+  function chmodPath(path, mode, onDone, onError) {
+    return request({ op: "chmod", path: path, mode: mode }, { onDone: onDone, onError: onError })
+  }
+
+  // Default app for a MIME type; onDone gets the desktop file id, or ""
+  function defaultApp(mime, onDone) {
+    return request({ op: "defaultapp", mime: mime }, {
+      onDone: function (m) { onDone(String(m.app || "")) },
+      onError: function () { onDone("") }
+    })
+  }
+
+  function setDefaultApp(mime, appId, onDone, onError) {
+    return request({ op: "defaultapp", mime: mime, set: appId }, {
+      onDone: function (m) { if (onDone) onDone(String(m.app || "")) },
+      onError: onError
+    })
+  }
+
   function sendViaLocalSend(paths) {
     if (!paths || paths.length === 0) return
     Quickshell.execDetached(["localsend", "--headless", "send"].concat(paths))

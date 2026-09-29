@@ -2278,6 +2278,45 @@ def op_samedev(req):
         send_error(req_id, errno_code(e), e.strerror or str(e))
 
 
+def op_chmod(req):
+    req_id = req["id"]
+    path = req.get("path")
+    mode = req.get("mode")
+    if not isinstance(path, str) or not isinstance(mode, int) or not 0 <= mode <= 0o777:
+        send_error(req_id, "EINVAL", "path and permission bits are required")
+        return
+    try:
+        current = os.lstat(to_bytes(path)).st_mode
+        # Only the rwx bits change; setuid, setgid and sticky stay as they were
+        os.chmod(to_bytes(path), (current & 0o7000) | mode)
+        send_done(req_id, mode=(current & 0o7000) | mode)
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e), path)
+
+
+def op_defaultapp(req):
+    """Read or set the default app for a MIME type, the same setting Nautilus changes."""
+    req_id = req["id"]
+    mime = req.get("mime")
+    app = req.get("set")
+    if not isinstance(mime, str) or "/" not in mime:
+        send_error(req_id, "EINVAL", "a MIME type is required")
+        return
+    try:
+        if isinstance(app, str) and app:
+            if not app.endswith(".desktop"):
+                app += ".desktop"
+            proc = run_trusted("xdg-mime", ["default", app, mime], timeout=10)
+            if proc.returncode != 0:
+                send_error(req_id, "EFAIL", (proc.stderr or "could not set the default app").strip())
+                return
+        proc = run_trusted("xdg-mime", ["query", "default", mime], timeout=10)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        send_error(req_id, "EUNSUPPORTED", str(e))
+        return
+    send_done(req_id, app=(proc.stdout or "").strip())
+
+
 def op_drives(req):
     req_id = req["id"]
     drives = []
@@ -2592,6 +2631,8 @@ CANCELLABLE_OPS = {
 }
 
 SIMPLE_OPS = {
+    "chmod": op_chmod,
+    "defaultapp": op_defaultapp,
     "clipset": op_clipset,
     "clipget": op_clipget,
     "clipclear": op_clipclear,

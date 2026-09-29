@@ -963,7 +963,7 @@ Item {
     else if (key === "makelink") makeLinks(entry)
     else if (key === "selectmatch") showDialog("selectmatch", "Select items matching", "*", null)
     else if (key === "open") p.openEntry(entry)
-    else if (key === "openwith") showDialog("openwith", "Open with", "", entry)
+    else if (key === "openwith") openWithDialog(entry, false)
     else if (key === "opentab") newTab(activeSide, entry.path)
     else if (key === "copy") doCopy()
     else if (key === "cut") doCut()
@@ -1068,15 +1068,81 @@ Item {
   property int propsFiles: 0
   property int propsDirs: 0
   property int propsDuId: 0
+  property string propsDefaultApp: ""
+  property bool openWithRemember: false
+  property bool openWithDefaultOnly: false
+  property string openWithMime: ""
+
+  function appNameFor(desktopId) {
+    var id = String(desktopId || "").replace(/\.desktop$/, "")
+    if (!id) return ""
+    var all = DesktopEntries.applications ? DesktopEntries.applications.values : []
+    for (var i = 0; i < all.length; i++)
+      if (all[i] && String(all[i].id).replace(/\.desktop$/, "") === id) return String(all[i].name)
+    return id
+  }
+
+  // Open with; with defaultOnly the pick just becomes the default app
+  function openWithDialog(entry, defaultOnly) {
+    openWithDefaultOnly = defaultOnly === true
+    openWithRemember = defaultOnly === true
+    openWithMime = ""
+    showDialog("openwith", defaultOnly ? "Default app" : "Open with", "", entry)
+    service.statPaths([entry.path], function (items) {
+      if (items && items.length > 0 && items[0].mime) root.openWithMime = String(items[0].mime)
+    })
+  }
+
+  // Owner, Group and Others rows of Read / Write / Run toggles, laid out flat for a Grid
+  function permissionCells() {
+    var runLabel = dialogPayload && dialogPayload.isDir ? "Enter" : "Run"
+    var cells = [
+      { column: 0, label: "", bit: 0, header: true },
+      { column: 1, label: "Read", bit: 0, header: true },
+      { column: 2, label: "Write", bit: 0, header: true },
+      { column: 3, label: runLabel, bit: 0, header: true }
+    ]
+    var roles = [["Owner", 256, 128, 64], ["Group", 32, 16, 8], ["Others", 4, 2, 1]]
+    for (var r = 0; r < roles.length; r++) {
+      cells.push({ column: 0, label: roles[r][0], bit: 0, header: false })
+      for (var b = 1; b <= 3; b++) cells.push({ column: b, label: "", bit: roles[r][b], header: false })
+    }
+    return cells
+  }
+
+  function permissionBit(bit) {
+    return propsInfo ? (Number(propsInfo.mode) & bit) !== 0 : false
+  }
+
+  function togglePermission(bit) {
+    if (!propsInfo || !dialogPayload) return
+    var mode = (Number(propsInfo.mode) & 511) ^ bit
+    var path = dialogPayload.path
+    service.chmodPath(path, mode, function (m) {
+      var next = {}
+      for (var k in root.propsInfo) next[k] = root.propsInfo[k]
+      next.mode = (Number(root.propsInfo.mode) & ~511) | (Number(m.mode) & 511)
+      root.propsInfo = next
+      root.dialogError = ""
+      root.activePane().refresh()
+    }, function (m) {
+      root.dialogError = "Could not change permissions: " + String(m.message || "")
+    })
+  }
+
   function showProperties(entry) {
     if (!entry) return
+    propsDefaultApp = ""
     propsInfo = null
     propsBytes = 0
     propsFiles = 0
     propsDirs = 0
     showDialog("properties", "Properties", "", entry)
     service.statPaths([entry.path], function (items) {
-      if (items && items.length > 0) root.propsInfo = items[0]
+      if (!items || items.length === 0) return
+      root.propsInfo = items[0]
+      if (items[0].mime && !entry.isDir)
+        service.defaultApp(String(items[0].mime), function (app) { root.propsDefaultApp = app })
     })
     if (entry.isDir) {
       propsDuId = service.diskUsage(entry.path, function (m) {
@@ -1328,6 +1394,20 @@ Item {
     var command = Array.prototype.slice.call(app.command || [])
     var inTerminal = app.runInTerminal === true
     var entry = dialogPayload
+    var mime = openWithMime
+    if (openWithRemember && mime && app.id) {
+      var name = String(app.name || app.id)
+      service.setDefaultApp(mime, String(app.id), function () {
+        root.statusText = name + " now opens " + mime
+      }, function (m) {
+        root.statusText = "Could not set the default app: " + String(m.message || "")
+      })
+    }
+    if (openWithDefaultOnly) {
+      closeDialog()
+      if (entry) Qt.callLater(function () { root.showProperties(entry) })
+      return
+    }
     closeDialog()
     if (!entry || !service) return
     service.openWith(command, entry.path, inTerminal)
@@ -2401,6 +2481,15 @@ Item {
             Keys.onEscapePressed: root.closeDialog()
           }
 
+          Toggle {
+            width: parent.width
+            visible: root.dialogMode === "openwith" && root.openWithMime !== "" && !root.openWithDefaultOnly
+            label: "Always use for this kind of file"
+            description: root.openWithMime
+            checked: root.openWithRemember
+            onClicked: root.openWithRemember = !root.openWithRemember
+          }
+
           Rectangle {
             width: parent.width
             height: Style.space(30)
@@ -3046,6 +3135,100 @@ Item {
                   font.family: Style.font.family
                   font.pixelSize: Style.font.bodySmall
                   elide: Text.ElideMiddle
+                }
+              }
+            }
+
+            Row {
+              width: parent.width
+              spacing: Style.space(10)
+              visible: root.propsInfo !== null && !!root.propsInfo.mime && root.dialogPayload !== null
+                && !root.dialogPayload.isDir
+
+              Text {
+                width: Style.space(110)
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Opens with"
+                color: Util.alpha(Color.popups.text, 0.55)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.bodySmall
+              }
+
+              Text {
+                width: parent.width - Style.space(210)
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.propsDefaultApp ? root.appNameFor(root.propsDefaultApp) : "No default app"
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.bodySmall
+                elide: Text.ElideRight
+              }
+
+              Button {
+                text: "Change"
+                bordered: true
+                onClicked: root.openWithDialog(root.dialogPayload, true)
+              }
+            }
+
+            Text {
+              visible: root.propsInfo !== null
+              topPadding: Style.space(6)
+              text: "Permissions"
+              color: Util.alpha(Color.popups.text, 0.55)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.bodySmall
+            }
+
+            Grid {
+              visible: root.propsInfo !== null
+              columns: 4
+              columnSpacing: Style.space(8)
+              rowSpacing: Style.space(4)
+
+              Repeater {
+                model: root.permissionCells()
+
+                delegate: Item {
+                  required property var modelData
+                  width: modelData.column === 0 ? Style.space(70) : Style.space(64)
+                  height: Style.space(24)
+
+                  Text {
+                    visible: modelData.bit === 0
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: modelData.label
+                    color: modelData.header ? Util.alpha(Color.popups.text, 0.55) : Color.popups.text
+                    font.family: Style.font.family
+                    font.pixelSize: modelData.header ? Style.font.caption : Style.font.bodySmall
+                  }
+
+                  Rectangle {
+                    visible: modelData.bit !== 0
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Style.space(20)
+                    height: Style.space(20)
+                    radius: Style.space(4)
+                    readonly property bool on: modelData.bit !== 0 && root.permissionBit(modelData.bit)
+                    color: on ? Color.accent : "transparent"
+                    border.width: Math.max(1, Style.space(1))
+                    border.color: on ? Color.accent : Util.alpha(Color.popups.text, 0.4)
+
+                    Text {
+                      anchors.centerIn: parent
+                      visible: parent.on
+                      text: Icons.actionGlyph("check")
+                      color: Color.popups.background
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                    }
+
+                    MouseArea {
+                      anchors.fill: parent
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: root.togglePermission(modelData.bit)
+                    }
+                  }
                 }
               }
             }
