@@ -634,7 +634,7 @@ class BarIconTests(unittest.TestCase):
         return {"version": 1, "bar": {"layout": {
             "left": [], "center": [],
             "right": [{"id": "omarchy.tray"},
-                      {"id": "xyzlab.omafile", "windowMode": "window"},
+                      {"id": "athesias.omafile", "windowMode": "window"},
                       {"id": "omarchy.clock"}]}}}
 
     def test_add_places_the_trash_entry_after_the_files_entry(self):
@@ -645,16 +645,16 @@ class BarIconTests(unittest.TestCase):
             entries = h.omafile_entries(config)
             arr = entries[0][1]
             arr.insert(entries[0][2] + 1,
-                       {"id": "xyzlab.omafile", "mode": "trash", "trashConfirm": True})
+                       {"id": "athesias.omafile", "mode": "trash", "trashConfirm": True})
             ids = [e.get("id") for e in config["bar"]["layout"]["right"]]
-            self.assertEqual(ids, ["omarchy.tray", "xyzlab.omafile", "xyzlab.omafile", "omarchy.clock"])
+            self.assertEqual(ids, ["omarchy.tray", "athesias.omafile", "athesias.omafile", "omarchy.clock"])
             self.assertTrue(h.bar_state(config)["trashIcon"])
 
     def test_settings_never_touch_the_trash_entry_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.base_config()
             config["bar"]["layout"]["right"].insert(
-                2, {"id": "xyzlab.omafile", "mode": "trash", "trashConfirm": True})
+                2, {"id": "athesias.omafile", "mode": "trash", "trashConfirm": True})
             h = self.helper_with_config(tmp, config)
             loaded = h.read_shell_config()
             for name, arr, index, entry in h.omafile_entries(loaded):
@@ -679,7 +679,7 @@ class BarIconTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             h = self.helper_with_config(tmp, self.base_config())
             config = h.read_shell_config()
-            config["bar"]["layout"]["right"].append({"id": "xyzlab.omafile", "mode": "trash"})
+            config["bar"]["layout"]["right"].append({"id": "athesias.omafile", "mode": "trash"})
             h.write_shell_config(config)
             again = h.read_shell_config()
             self.assertTrue(h.bar_state(again)["trashIcon"])
