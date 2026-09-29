@@ -915,7 +915,7 @@ Item {
     if (!parsed || typeof parsed !== "object") return
     if (parsed.recent) recent = parsed.recent
     if (parsed.pinned) pinned = parsed.pinned
-    if (parsed.hiddenDrives) hiddenDrives = parsed.hiddenDrives
+    // Drive hiding was removed; every drive shows in the sidebar
     if (parsed.servers) servers = parsed.servers
     if (parsed.previousFileManager) previousFileManager = String(parsed.previousFileManager)
     if (parsed.session) session = parsed.session
