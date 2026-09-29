@@ -598,10 +598,60 @@ Item {
     var p = activePane()
     service.deletePaths(paths, function () { p.refresh() }, null)
   }
+  property string batchMode: "replace"
+  property string batchFirst: ""
+  property string batchSecond: ""
+  readonly property var batchPlan: dialogMode === "batchrename" && dialogPayload
+    ? Model.batchRenamePlan(dialogPayload.entries, batchMode, batchFirst, batchSecond) : []
+  readonly property string batchProblem: dialogMode === "batchrename"
+    ? Model.batchRenameProblem(batchPlan, currentNames()) : ""
+
+  function currentNames() {
+    var p = activePane()
+    var out = []
+    for (var i = 0; i < p.rows.length; i++) out.push(String(p.rows[i][0]))
+    return out
+  }
+
+  function runBatchRename() {
+    if (batchProblem !== "") return
+    var p = activePane()
+    var plan = batchPlan
+    closeDialog()
+    var todo = []
+    for (var i = 0; i < plan.length; i++) if (plan[i].to !== plan[i].from) todo.push(plan[i])
+    var done = 0
+    var failed = ""
+    var step = function (index) {
+      if (index >= todo.length) {
+        root.statusText = failed ? "Renamed " + done + ", then stopped: " + failed
+          : Model.formatCount(done, "item renamed", "items renamed")
+        p.refresh()
+        return
+      }
+      service.renamePath(todo[index].path, todo[index].to, function () {
+        done++
+        step(index + 1)
+      }, function (m) {
+        failed = String(m.message || "could not rename")
+        step(todo.length)
+      })
+    }
+    step(0)
+  }
+
   function doRename() {
     var p = activePane()
     var entry = p.cursorEntry()
     var sel = p.selectedEntries
+    if (sel.length > 1) {
+      batchMode = "replace"
+      batchFirst = ""
+      batchSecond = ""
+      showDialog("batchrename", "Rename " + sel.length + " items", "", { entries: sel })
+      Qt.callLater(function () { batchFirstField.text = ""; batchSecondField.text = ""; batchFirstField.forceActiveFocus() })
+      return
+    }
     if (sel.length === 1) entry = sel[0]
     if (!entry) return
     showDialog("rename", "Rename", entry.name, entry)
@@ -2426,6 +2476,88 @@ Item {
             Keys.onEscapePressed: root.closeDialog()
           }
 
+          Column {
+            width: parent.width
+            visible: root.dialogMode === "batchrename"
+            spacing: Style.space(8)
+
+            Dropdown {
+              width: parent.width
+              showLabel: false
+              value: root.batchMode
+              options: [
+                { label: "Find and replace text", value: "replace" },
+                { label: "Rename using a template", value: "template" }
+              ]
+              onChanged: function (v) {
+                root.batchMode = String(v)
+                batchFirstField.text = root.batchMode === "template" ? "{name} {n}" : ""
+              }
+            }
+
+            TextField {
+              id: batchFirstField
+              width: parent.width
+              placeholderText: root.batchMode === "template" ? "Template, for example Trip {nn}" : "Find"
+              onTextChanged: root.batchFirst = text
+              onAccepted: root.runBatchRename()
+              Keys.onEscapePressed: root.closeDialog()
+            }
+
+            TextField {
+              id: batchSecondField
+              width: parent.width
+              visible: root.batchMode === "replace"
+              placeholderText: "Replace with"
+              onTextChanged: root.batchSecond = text
+              onAccepted: root.runBatchRename()
+              Keys.onEscapePressed: root.closeDialog()
+            }
+
+            Text {
+              width: parent.width
+              visible: root.batchMode === "template"
+              text: "{name} is the original name. {n}, {nn} or {nnn} is a number counting from 1. Extensions are kept."
+              color: Util.alpha(Color.popups.text, 0.55)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.Wrap
+            }
+
+            Repeater {
+              model: root.batchPlan.slice(0, 6)
+
+              delegate: Text {
+                required property var modelData
+                width: parent.width
+                text: modelData.from + "  " + Icons.actionGlyph("forward") + "  " + modelData.to
+                color: modelData.from === modelData.to ? Util.alpha(Color.popups.text, 0.45) : Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideMiddle
+              }
+            }
+
+            Text {
+              visible: root.batchPlan.length > 6
+              text: "and " + (root.batchPlan.length - 6) + " more"
+              color: Util.alpha(Color.popups.text, 0.55)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+
+            Text {
+              width: parent.width
+              visible: root.batchProblem !== "" && root.batchFirst !== ""
+              text: root.batchProblem
+              color: Color.urgent
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.Wrap
+            }
+
+          }
+
           Dropdown {
             width: parent.width
             visible: root.dialogMode === "compress"
@@ -2440,23 +2572,6 @@ Item {
             onChanged: function (v) { root.compressFormat = String(v) }
           }
 
-          Row {
-            visible: root.dialogMode === "compress"
-            anchors.right: parent.right
-            spacing: Style.space(8)
-
-            Button {
-              text: "Cancel"
-              bordered: true
-              onClicked: root.closeDialog()
-            }
-
-            Button {
-              text: "Compress"
-              bordered: true
-              onClicked: root.submitDialog()
-            }
-          }
 
           Text {
             width: parent.width
@@ -3285,11 +3400,16 @@ Item {
 
             Button {
               text: root.isReadOnlyDialog() ? "Close"
-                : (root.dialogMode === "connect" ? "Connect" : "Confirm")
+                : (root.dialogMode === "connect" ? "Connect"
+                : (root.dialogMode === "batchrename" ? "Rename"
+                : (root.dialogMode === "compress" ? "Compress" : "Confirm")))
               bordered: true
+              enabled: root.dialogMode !== "batchrename" || root.batchProblem === ""
+              opacity: enabled ? 1 : 0.5
               onClicked: {
                 if (root.isReadOnlyDialog()) root.closeDialog()
                 else if (root.dialogMode === "connect") root.submitConnect()
+                else if (root.dialogMode === "batchrename") root.runBatchRename()
                 else root.submitDialog()
               }
             }

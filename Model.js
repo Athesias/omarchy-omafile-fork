@@ -93,6 +93,52 @@ function archiveStem(name) {
   return dot > 0 ? String(name).slice(0, dot) : String(name || '');
 }
 
+// Batch rename. mode "replace" swaps text; mode "template" builds names from
+// {name} (original name without extension) and {n}/{nn}/{nnn} (1-based number).
+// The extension is kept in template mode.
+function batchRenamePlan(entries, mode, first, second) {
+  var out = [];
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    var name = String(e.name);
+    var to = name;
+    if (mode === 'replace') {
+      if (first) to = name.split(first).join(second || '');
+    } else {
+      var dot = e.isDir ? -1 : name.lastIndexOf('.');
+      var stem = dot > 0 ? name.slice(0, dot) : name;
+      var ext = dot > 0 ? name.slice(dot) : '';
+      var n = i + 1;
+      to = String(first || '').replace(/\{name\}/g, stem).replace(/\{(n+)\}/g, function (m, g) {
+        var text = String(n);
+        while (text.length < g.length) text = '0' + text;
+        return text;
+      }) + ext;
+    }
+    out.push({ path: e.path, from: name, to: to });
+  }
+  return out;
+}
+
+// First problem with a plan, or '' when it is safe to run
+function batchRenameProblem(plan, existingNames) {
+  var taken = {};
+  var leaving = {};
+  for (var i = 0; i < plan.length; i++) leaving[plan[i].from] = true;
+  for (var k = 0; k < existingNames.length; k++)
+    if (!leaving[existingNames[k]]) taken[existingNames[k]] = true;
+  var changed = 0;
+  for (var j = 0; j < plan.length; j++) {
+    var to = plan[j].to;
+    if (!to || to === '.' || to === '..') return 'A new name would be empty';
+    if (to.indexOf('/') >= 0) return 'Names cannot contain a slash';
+    if (taken[to]) return '"' + to + '" would be used twice';
+    taken[to] = true;
+    if (to !== plan[j].from) changed++;
+  }
+  return changed === 0 ? 'Nothing would change' : '';
+}
+
 function isTranscodable(entry) {
   if (!entry || entry.isDir || entry.isBroken) return false;
   return !!transcodeExtSet[String(entry.ext || '').toLowerCase()];
