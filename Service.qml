@@ -328,6 +328,8 @@ Item {
 
   function setClipboard(mode, paths) {
     clipboard = { mode: mode, paths: paths.slice() }
+    // Also on the system clipboard, so other apps can paste the files
+    request({ op: "clipset", mode: mode, paths: paths.slice() }, null)
   }
 
   function clearClipboard() {
@@ -810,6 +812,26 @@ Item {
         delete root._thumbPending[key]
         root.thumbCache[key] = ""
       }
+    })
+  }
+
+  // Files on the system clipboard (from Omafile, Nautilus, a browser...).
+  // onDone gets null when the clipboard cannot be read at all.
+  function readSystemClipboard(onDone) {
+    return request({ op: "clipget" }, {
+      onDone: function (m) { onDone({ mode: String(m.mode || "copy"), paths: m.paths || [] }) },
+      onError: function () { onDone(null) }
+    })
+  }
+
+  function clearSystemClipboard() {
+    request({ op: "clipclear" }, null)
+  }
+
+  function sameDevice(path, dest, onDone) {
+    return request({ op: "samedev", path: path, dest: dest }, {
+      onDone: function (m) { onDone(m.same === true) },
+      onError: function () { onDone(false) }
     })
   }
 

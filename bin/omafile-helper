@@ -2185,6 +2185,99 @@ def op_thumb(req, cancel_event):
     send_done(req_id, thumb=out)
 
 
+def file_uri(path):
+    from urllib.parse import quote
+    return "file://" + quote(path, safe="/-._~!$&'()*+,;=:@")
+
+
+def uri_to_path(uri):
+    from urllib.parse import unquote, urlsplit
+    uri = uri.strip()
+    if not uri or uri.startswith("#"):
+        return None
+    parts = urlsplit(uri)
+    if parts.scheme != "file" or parts.netloc not in ("", "localhost"):
+        return None
+    return unquote(parts.path)
+
+
+def op_clipset(req):
+    """Put files on the system clipboard. Copy offers text/uri-list, which
+    browsers, chat apps and file managers accept. Cut offers the GNOME format,
+    the only one that tells Nautilus to move on paste."""
+    req_id = req["id"]
+    mode = req.get("mode")
+    paths = req.get("paths") or []
+    if mode not in ("copy", "cut") or not paths:
+        send_error(req_id, "EINVAL", "mode and paths are required")
+        return
+    uris = [file_uri(x) for x in paths if isinstance(x, str)]
+    if mode == "cut":
+        mime, data = "x-special/gnome-copied-files", "cut\n" + "\n".join(uris)
+    else:
+        mime, data = "text/uri-list", "\r\n".join(uris) + "\r\n"
+    try:
+        # wl-copy forks to serve the clipboard, so its pipes must not be held
+        subprocess.run([trusted_program("wl-copy"), "--type", mime], input=data.encode("utf-8"),
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=trusted_env(), timeout=5)
+    except (OSError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+        send_error(req_id, "EUNSUPPORTED", str(e))
+        return
+    send_done(req_id)
+
+
+def op_clipget(req):
+    """Files on the system clipboard, from any app."""
+    req_id = req["id"]
+    try:
+        wl_paste = trusted_program("wl-paste")
+        listed = subprocess.run([wl_paste, "--list-types"], capture_output=True, env=trusted_env(), timeout=3)
+    except (OSError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+        send_error(req_id, "EUNSUPPORTED", str(e))
+        return
+    types = listed.stdout.decode("utf-8", "replace").split()
+    mode = "copy"
+    body = ""
+    try:
+        if "x-special/gnome-copied-files" in types:
+            got = subprocess.run([wl_paste, "--no-newline", "--type", "x-special/gnome-copied-files"],
+                                 capture_output=True, env=trusted_env(), timeout=3)
+            lines = got.stdout.decode("utf-8", "replace").splitlines()
+            if lines and lines[0].strip() in ("copy", "cut"):
+                mode = lines[0].strip()
+                lines = lines[1:]
+            body = "\n".join(lines)
+        elif "text/uri-list" in types:
+            got = subprocess.run([wl_paste, "--no-newline", "--type", "text/uri-list"],
+                                 capture_output=True, env=trusted_env(), timeout=3)
+            body = got.stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.TimeoutExpired) as e:
+        send_error(req_id, "EFAIL", str(e))
+        return
+    paths = [x for x in (uri_to_path(u) for u in body.splitlines()) if x]
+    send_done(req_id, mode=mode, paths=paths)
+
+
+def op_clipclear(req):
+    try:
+        subprocess.run([trusted_program("wl-copy"), "--clear"], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, env=trusted_env(), timeout=3)
+    except (OSError, FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    send_done(req["id"])
+
+
+def op_samedev(req):
+    """Whether a drop should move (same filesystem) or copy, as Nautilus decides."""
+    req_id = req["id"]
+    try:
+        a = os.lstat(to_bytes(req.get("path") or ""))
+        b = os.stat(to_bytes(req.get("dest") or ""))
+        send_done(req_id, same=a.st_dev == b.st_dev)
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e))
+
+
 def op_drives(req):
     req_id = req["id"]
     drives = []
@@ -2499,6 +2592,10 @@ CANCELLABLE_OPS = {
 }
 
 SIMPLE_OPS = {
+    "clipset": op_clipset,
+    "clipget": op_clipget,
+    "clipclear": op_clipclear,
+    "samedev": op_samedev,
     "setbackground": op_setbackground,
     "stat": op_stat,
     "peek": op_peek,

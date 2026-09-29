@@ -528,11 +528,23 @@ Item {
     statusText = Model.formatCount(paths.length, "item cut", "items cut")
   }
   function doPaste() {
-    var clip = service ? service.clipboard : null
-    if (!clip || !clip.paths || clip.paths.length === 0) return
+    if (!service) return
     var p = activePane()
-    service.beginTransfer(clip.mode === "cut" ? "move" : "copy", clip.paths, p.path, "ask")
-    if (clip.mode === "cut") service.clearClipboard()
+    var dest = p.path
+    // The system clipboard wins, so files copied in Nautilus or a browser paste here too
+    service.readSystemClipboard(function (sys) {
+      var clip = sys
+      if (!clip) clip = service.clipboard
+      if (!clip || !clip.paths || clip.paths.length === 0) {
+        root.statusText = "Nothing to paste"
+        return
+      }
+      service.beginTransfer(clip.mode === "cut" ? "move" : "copy", clip.paths, dest, "ask")
+      if (clip.mode === "cut") {
+        service.clearClipboard()
+        service.clearSystemClipboard()
+      }
+    })
   }
   function clampViewScale(value) {
     var n = Number(value)
@@ -628,6 +640,33 @@ Item {
     var p = activePane()
     var picked = p.selectedPaths()
     return picked.indexOf(entry.path) >= 0 ? picked : [entry.path]
+  }
+
+  // Files dropped from Omafile or another app. Same drive moves, another drive
+  // copies, as in Nautilus; the trash takes them as a move to trash.
+  function handleDrop(urls, dest) {
+    if (!service) return
+    var paths = []
+    for (var i = 0; i < urls.length; i++) {
+      var u = String(urls[i])
+      if (u.indexOf("file://") !== 0) continue
+      var path = decodeURIComponent(u.substring(7))
+      if (dest !== "trash:") {
+        if (path === dest || dest.indexOf(path + "/") === 0) continue
+        if (Model.parentPath(path) === dest) continue
+      }
+      paths.push(path)
+    }
+    if (paths.length === 0) return
+    if (dest === "trash:") {
+      performTrash(paths)
+      return
+    }
+    service.sameDevice(paths[0], dest, function (same) {
+      service.beginTransfer(same ? "move" : "copy", paths, dest, "ask")
+      root.statusText = (same ? "Moving " : "Copying ") + Model.formatCount(paths.length, "item", "items")
+        + " to " + Model.basename(dest)
+    })
   }
 
   function openFileLocation(entry) {
@@ -823,8 +862,7 @@ Item {
       items.push({ key: "cut", label: "Cut", glyph: Icons.actionGlyph("cut") })
       items.push({ key: "makelink", label: "Make link", glyph: Icons.glyphForCategory("link") })
     }
-    items.push({ key: "paste", label: "Paste", glyph: Icons.actionGlyph("paste"),
-      disabled: !service || !service.clipboard || service.clipboard.paths.length === 0 })
+    items.push({ key: "paste", label: "Paste", glyph: Icons.actionGlyph("paste"), disabled: !service })
     if (hasEntry) {
       items.push({ key: "sep2", label: "", glyph: "" })
       items.push({ key: "rename", label: "Rename", glyph: Icons.actionGlyph("rename") })
@@ -1689,6 +1727,7 @@ Item {
           onOpenInNewTab: function (target) { root.newTab(root.activeSide, target) }
           onRemoveBookmark: function (target) { root.service.togglePinned(target) }
           onDriveMenu: function (row, source, x, y) { root.openDriveMenu(row, source, x, y) }
+          onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
           onShowAllDrives: root.showDialog("settings", "Settings", "", null)
           onConnectServer: function (uri) {
             root.showDialog("connect", "Connect to a server", String(uri || ""), null)
@@ -1741,6 +1780,7 @@ Item {
               onOpenRequested: function (entry) { root.handleOpenRequest(entry) }
               onNavigated: function (p) { root.rememberSession() }
               onZoomRequested: function (delta) { root.nudgeViewScale(delta) }
+              onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
               onContextRequested: function (entry, x, y) {
                 root.menuKind = ""
                 root.menuEntry = entry
@@ -1790,6 +1830,7 @@ Item {
               onOpenRequested: function (entry) { root.handleOpenRequest(entry) }
               onNavigated: function (p) { root.rememberSession() }
               onZoomRequested: function (delta) { root.nudgeViewScale(delta) }
+              onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
               onContextRequested: function (entry, x, y) {
                 root.menuKind = ""
                 root.menuEntry = entry

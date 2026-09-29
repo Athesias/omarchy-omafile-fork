@@ -70,6 +70,56 @@ Item {
   signal contextRequested(var entry, real sceneX, real sceneY)
   signal statusChanged()
   signal zoomRequested(real delta)
+  signal dropRequested(var urls, string dest)
+
+  // Drag and drop: what a drag started here carries
+  property string dragUriList: ""
+  property string dragImage: ""
+
+  function fileUri(path) {
+    return "file://" + encodeURI(String(path)).replace(/#/g, "%23").replace(/\?/g, "%3F")
+  }
+
+  function prepareDrag(entry) {
+    var paths = selectedPaths()
+    if (paths.indexOf(entry.path) < 0) paths = [entry.path]
+    var uris = []
+    for (var i = 0; i < paths.length; i++) uris.push(fileUri(paths[i]))
+    dragUriList = uris.join("\r\n") + "\r\n"
+    dragBadgeGlyph.text = Icons.glyphFor(entry)
+    dragBadgeLabel.text = paths.length === 1 ? entry.name : Model.formatCount(paths.length, "item", "items")
+    Qt.callLater(function () {
+      dragBadge.grabToImage(function (result) { pane.dragImage = String(result.url) })
+    })
+  }
+
+  // Press on an item: keep a multi-selection so it can be dragged; a plain
+  // click without dragging narrows it to that item on release.
+  function pressItem(index, mouse) {
+    var extend = (mouse.modifiers & Qt.ShiftModifier) !== 0
+    var toggle = (mouse.modifiers & Qt.ControlModifier) !== 0
+    if (!extend && !toggle && pane.selection[pane.rows[index][0]]) {
+      pane.cursorIndex = index
+      return true
+    }
+    pane.setCursor(index, extend, toggle)
+    return false
+  }
+
+  // Where a press lands on an item rather than the space around it. Presses
+  // elsewhere start a selection box, as in Nautilus.
+  function hotIndex(x, y) {
+    var index = hitTestIndex(x, y)
+    if (index < 0) return -1
+    var v = activeView()
+    var pt = bandArea.mapToItem(v, x, y)
+    if (pane.view === "list") return pt.x < header.width * 0.52 ? index : -1
+    if (pane.compactView) return index
+    var cw = gridView.cellWidth
+    var cols = Math.max(1, Math.floor(gridView.width / cw))
+    var cx = (pt.x + v.contentX) - (index % cols) * cw
+    return (cx > cw * 0.12 && cx < cw * 0.88) ? index : -1
+  }
 
   function countSelection() {
     var n = 0
@@ -587,12 +637,49 @@ Item {
   readonly property color accent: Color.accent
   readonly property color muted: Color.muted
 
+  // Rendered off to the side and grabbed as the picture under the cursor while dragging
+  Rectangle {
+    id: dragBadge
+    z: -1
+    width: badgeRow.implicitWidth + Style.space(20)
+    height: badgeRow.implicitHeight + Style.space(12)
+    radius: Style.cornerRadius
+    color: Util.alpha(pane.accent, 0.9)
+
+    Row {
+      id: badgeRow
+      anchors.centerIn: parent
+      spacing: Style.space(8)
+
+      Text {
+        id: dragBadgeGlyph
+        color: pane.bg
+        font.family: Style.font.family
+        font.pixelSize: pane.nameSize
+      }
+
+      Text {
+        id: dragBadgeLabel
+        color: pane.bg
+        font.family: Style.font.family
+        font.pixelSize: pane.nameSize
+      }
+    }
+  }
+
   Rectangle {
     anchors.fill: parent
-    color: pane.bg
+    color: paneDrop.containsDrag ? Qt.tint(pane.bg, Util.alpha(pane.accent, 0.08)) : pane.bg
     border.width: Math.max(1, Style.space(1))
     border.color: pane.active
       ? Util.alpha(pane.accent, 0.5) : Util.alpha(pane.fg, 0.15)
+
+    DropTarget {
+      id: paneDrop
+      anchors.fill: parent
+      target: pane.virtualView || pane.searching ? "" : pane.path
+      onFilesDropped: function (urls, dest) { pane.dropRequested(urls, dest) }
+    }
 
     MouseArea {
       id: bandArea
@@ -606,6 +693,9 @@ Item {
       property real currentY: 0
       property bool banding: false
       property var baseSelection: ({})
+      property int pressedIndex: -1
+      property bool moved: false
+      property int pressModifiers: 0
 
       onPressed: function (mouse) {
         pane.activated()
@@ -613,15 +703,24 @@ Item {
           mouse.accepted = false
           return
         }
-        if (pane.hitTestIndex(mouse.x, mouse.y) >= 0) {
+        if (pane.hotIndex(mouse.x, mouse.y) >= 0) {
           mouse.accepted = false
           return
         }
+        pressedIndex = pane.hitTestIndex(mouse.x, mouse.y)
+        moved = false
         if (mouse.button === Qt.RightButton) {
+          if (pressedIndex >= 0) {
+            var hit = Model.decodeEntry(pane.rows[pressedIndex], pane.path)
+            if (!pane.selection[pane.rows[pressedIndex][0]]) pane.setCursor(pressedIndex, false, false)
+            pane.contextRequested(hit, mouse.x, mouse.y)
+            return
+          }
           pane.clearSelection()
           pane.contextRequested(null, mouse.x, mouse.y)
           return
         }
+        pressModifiers = mouse.modifiers
         var additive = (mouse.modifiers & Qt.ControlModifier) !== 0
         baseSelection = additive ? pane.selection : ({})
         if (!additive) pane.clearSelection()
@@ -634,13 +733,25 @@ Item {
 
       onPositionChanged: function (mouse) {
         if (!banding) return
+        if (!moved && Math.abs(mouse.x - originX) + Math.abs(mouse.y - originY) < Style.space(4)) return
+        moved = true
         currentX = mouse.x
         currentY = mouse.y
         pane.selectInBand(originX, originY, currentX, currentY, baseSelection)
       }
 
-      onReleased: banding = false
+      onReleased: {
+        // A click beside an item's name still selects that item
+        if (banding && !moved && pressedIndex >= 0)
+          pane.setCursor(pressedIndex, (pressModifiers & Qt.ShiftModifier) !== 0,
+            (pressModifiers & Qt.ControlModifier) !== 0)
+        banding = false
+      }
       onCanceled: banding = false
+      onDoubleClicked: function (mouse) {
+        if (pressedIndex >= 0 && pressedIndex < pane.rows.length)
+          pane.openEntry(Model.decodeEntry(pane.rows[pressedIndex], pane.path))
+      }
 
       // Ctrl + wheel zooms, like Nautilus; plain wheel scrolls the list below
       onWheel: function (wheel) {
@@ -652,7 +763,7 @@ Item {
       }
 
       Rectangle {
-        visible: bandArea.banding
+        visible: bandArea.banding && bandArea.moved
         x: Math.min(bandArea.originX, bandArea.currentX)
         y: Math.min(bandArea.originY, bandArea.currentY)
         width: Math.abs(bandArea.currentX - bandArea.originX)
@@ -741,9 +852,23 @@ Item {
 
           width: listView.width
           height: pane.rowHeight
-          color: pane.selection[modelData[0]]
+          color: rowDrop.containsDrag ? Util.alpha(pane.accent, 0.3)
+            : pane.selection[modelData[0]]
             ? Util.alpha(pane.accent, Style.selectedFillAlpha)
             : (rowHover.hovered ? Util.alpha(pane.fg, Style.hoverFillAlpha) : "transparent")
+
+          DropTarget {
+            id: rowDrop
+            anchors.fill: parent
+            target: row.entry.isDir && !row.entry.isBroken && !pane.virtualView ? row.entry.path : ""
+            onFilesDropped: function (urls, dest) { pane.dropRequested(urls, dest) }
+          }
+
+          DragProxy {
+            id: rowDrag
+            pane: pane
+            active: rowMouse.drag.active
+          }
 
           Rectangle {
             anchors.fill: parent
@@ -755,8 +880,12 @@ Item {
           HoverHandler { id: rowHover }
 
           MouseArea {
+            id: rowMouse
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+            drag.target: rowDrag
+            drag.threshold: Style.space(8)
+            property bool narrowOnRelease: false
             onPressed: function (mouse) {
               pane.activated()
               if (mouse.button === Qt.RightButton) {
@@ -764,9 +893,12 @@ Item {
                 pane.contextRequested(row.entry, mouse.x + row.x, mouse.y + row.y)
                 return
               }
-              var extend = (mouse.modifiers & Qt.ShiftModifier) !== 0
-              var toggle = (mouse.modifiers & Qt.ControlModifier) !== 0
-              pane.setCursor(row.index, extend, toggle)
+              narrowOnRelease = pane.pressItem(row.index, mouse)
+              if (mouse.button === Qt.LeftButton) pane.prepareDrag(row.entry)
+            }
+            onReleased: {
+              if (narrowOnRelease && !drag.active) pane.setCursor(row.index, false, false)
+              narrowOnRelease = false
             }
             onDoubleClicked: function (mouse) {
               if (mouse.button !== Qt.LeftButton) return
@@ -900,7 +1032,8 @@ Item {
           width: gridView.cellWidth - (pane.compactView ? Style.space(4) : 0)
           height: gridView.cellHeight
           radius: Style.cornerRadius
-          color: pane.selection[modelData[0]]
+          color: cellDrop.containsDrag ? Util.alpha(pane.accent, 0.3)
+            : pane.selection[modelData[0]]
             ? Util.alpha(pane.accent, Style.selectedFillAlpha)
             : (cellHover.hovered ? Util.alpha(pane.fg, Style.hoverFillAlpha) : "transparent")
           border.width: pane.cursorIndex === index && pane.active ? 1 : 0
@@ -908,9 +1041,26 @@ Item {
 
           HoverHandler { id: cellHover }
 
+          DropTarget {
+            id: cellDrop
+            anchors.fill: parent
+            target: cell.entry.isDir && !cell.entry.isBroken && !pane.virtualView ? cell.entry.path : ""
+            onFilesDropped: function (urls, dest) { pane.dropRequested(urls, dest) }
+          }
+
+          DragProxy {
+            id: cellDrag
+            pane: pane
+            active: cellMouse.drag.active
+          }
+
           MouseArea {
+            id: cellMouse
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton | Qt.RightButton
+            drag.target: cellDrag
+            drag.threshold: Style.space(8)
+            property bool narrowOnRelease: false
             onPressed: function (mouse) {
               pane.activated()
               if (mouse.button === Qt.RightButton) {
@@ -918,9 +1068,12 @@ Item {
                 pane.contextRequested(cell.entry, mouse.x + cell.x, mouse.y + cell.y)
                 return
               }
-              var extend = (mouse.modifiers & Qt.ShiftModifier) !== 0
-              var toggle = (mouse.modifiers & Qt.ControlModifier) !== 0
-              pane.setCursor(cell.index, extend, toggle)
+              narrowOnRelease = pane.pressItem(cell.index, mouse)
+              pane.prepareDrag(cell.entry)
+            }
+            onReleased: {
+              if (narrowOnRelease && !drag.active) pane.setCursor(cell.index, false, false)
+              narrowOnRelease = false
             }
             onDoubleClicked: pane.openEntry(cell.entry)
           }
