@@ -413,7 +413,7 @@ Item {
     appFilter = ""
     Qt.callLater(function () {
       if (dialogMode === "rename" || dialogMode === "newfolder" || dialogMode === "newfile" || dialogMode === "path"
-          || dialogMode === "selectmatch") {
+          || dialogMode === "selectmatch" || dialogMode === "compress") {
         dialogField.text = root.dialogValue
         dialogField.forceActiveFocus()
         if (dialogMode === "rename") {
@@ -485,6 +485,18 @@ Item {
       dialogError = "Name cannot contain a slash"
       return
     }
+    if (dialogMode === "compress") {
+      var paths = dialogPayload ? dialogPayload.paths : []
+      closeDialog()
+      statusText = "Compressing"
+      service.compressPaths(paths, value, compressFormat, function (m) {
+        root.statusText = "Compressed to " + Model.basename(String(m.path || ""))
+        p.refresh()
+      }, function (m) {
+        root.statusText = "Could not compress: " + String(m.message || "")
+      })
+      return
+    }
     if (dialogMode === "newfolder") {
       service.makeDirectory(Model.joinPath(p.path, value),
         function () { closeDialog(); p.refresh() },
@@ -546,6 +558,7 @@ Item {
   function doTrash() {
     var paths = activePane().selectedPaths()
     if (paths.length === 0) return
+    if (isTrashRoot(activePane().path)) return askDelete(paths)
     if (service.setting("useTrash", true) !== true) return askDelete(paths)
     if (service.setting("confirmTrash", true) !== true) return performTrash(paths)
     confirmAction = "trash"
@@ -690,9 +703,94 @@ Item {
     return out.length > 0 ? out : [entry.path]
   }
 
+  // The top level of a trash can: ~/.local/share/Trash/files or <drive>/.Trash-UID/files
+  function isTrashRoot(path) {
+    return /\/Trash\/files$/.test(String(path)) || /\/\.Trash-\d+\/files$/.test(String(path))
+  }
+
+  function trashActions(entry) {
+    var items = []
+    if (entry) {
+      if (entry.isDir) items.push({ key: "open", label: "Open", glyph: Icons.actionGlyph("open") })
+      else items.push({ key: "preview", label: "Preview", glyph: Icons.actionGlyph("search") })
+      items.push({ key: "sep1", label: "", glyph: "" })
+      items.push({ key: "restore", label: "Restore", glyph: Icons.actionGlyph("back") })
+      items.push({ key: "delete", label: "Delete permanently", glyph: Icons.actionGlyph("delete") })
+      items.push({ key: "sep2", label: "", glyph: "" })
+      items.push({ key: "properties", label: "Properties", glyph: Icons.actionGlyph("properties") })
+    } else {
+      items.push({ key: "emptytrash", label: "Empty trash", glyph: Icons.actionGlyph("delete"),
+        disabled: activePane().rows.length === 0 })
+      items.push({ key: "sep1", label: "", glyph: "" })
+      items.push({ key: "selectmatch", label: "Select items matching", glyph: Icons.actionGlyph("search") })
+      items.push({ key: "refresh", label: "Refresh", glyph: Icons.actionGlyph("refresh") })
+    }
+    return items
+  }
+
+  function restoreFromTrash(entry) {
+    var p = activePane()
+    var names = []
+    var targets = actionTargets(entry)
+    for (var i = 0; i < targets.length; i++) names.push(Model.basename(targets[i]))
+    service.restoreFromTrash(names, function (m) {
+      var ok = 0
+      var failed = ""
+      var results = m.results || []
+      for (var r = 0; r < results.length; r++) {
+        if (results[r].ok) ok++
+        else if (!failed) failed = String(results[r].message || "")
+      }
+      root.statusText = failed ? "Could not restore: " + failed
+        : Model.formatCount(ok, "item restored", "items restored")
+      p.refresh()
+    }, function (m) { root.statusText = "Could not restore: " + String(m.message || "") })
+  }
+
+  function askEmptyTrash() {
+    confirmAction = "emptytrash"
+    confirm.message = "Empty the trash? Everything in it is deleted permanently."
+    confirm.confirmText = "Empty trash"
+    dialogPayload = []
+    confirm.opened = true
+  }
+
+  property string compressFormat: "zip"
+
+  function askCompress(entry) {
+    var targets = actionTargets(entry)
+    if (targets.length === 0) return
+    var name = targets.length === 1 ? Model.basename(targets[0]) : "Archive"
+    if (targets.length === 1 && !entry.isDir) name = Model.archiveStem(name)
+    showDialog("compress", targets.length === 1 ? "Compress" : "Compress " + targets.length + " items",
+      name, { paths: targets })
+  }
+
+  function extractArchives(entry) {
+    var p = activePane()
+    var picked = actionTargets(entry)
+    var archives = []
+    for (var i = 0; i < picked.length; i++)
+      if (Model.isArchive({ name: Model.basename(picked[i]), isDir: false })) archives.push(picked[i])
+    if (archives.length === 0) archives = [entry.path]
+    statusText = "Extracting " + Model.formatCount(archives.length, "archive", "archives")
+    var left = archives.length
+    for (var a = 0; a < archives.length; a++) {
+      service.extractArchive(archives[a], function (m) {
+        left--
+        if (left === 0) root.statusText = "Extracted to " + Model.basename(String(m.path || ""))
+        p.refresh()
+      }, function (m) {
+        left--
+        root.statusText = "Could not extract: " + String(m.message || "")
+      })
+    }
+  }
+
   function contextActions(entry) {
     var p = activePane()
     var hasEntry = entry !== null && entry !== undefined
+    if (isTrashRoot(p.path)) return trashActions(hasEntry ? entry : null)
     var items = []
     if (hasEntry) {
       items.push({ key: "open", label: entry.isDir ? "Open" : "Open", glyph: Icons.actionGlyph("open") })
@@ -707,6 +805,9 @@ Item {
       if (Model.isBackgroundImage(entry) && p.selectedCount <= 1)
         items.push({ key: "background", label: "Set as Omarchy background", glyph: Icons.glyphFor(entry) })
       items.push({ key: "localsend", label: "Send via LocalSend", glyph: Icons.actionGlyph("forward") })
+      items.push({ key: "compress", label: "Compress", glyph: Icons.glyphForCategory("archive") })
+      if (Model.isArchive(entry))
+        items.push({ key: "extract", label: "Extract here", glyph: Icons.glyphForCategory("archive") })
       if (entry.isDir) {
         items.push({ key: "opentab", label: "Open in new tab", glyph: Icons.actionGlyph("add") })
         items.push({
@@ -815,6 +916,10 @@ Item {
     else if (key === "preview") showPreview(entry)
     else if (key === "transcode") service.transcode(transcodeTargets(entry))
     else if (key === "location") openFileLocation(entry)
+    else if (key === "restore") restoreFromTrash(entry)
+    else if (key === "emptytrash") askEmptyTrash()
+    else if (key === "compress") askCompress(entry)
+    else if (key === "extract") extractArchives(entry)
     else if (key === "background") setAsBackground(entry)
     else if (key === "localsend") service.sendViaLocalSend(actionTargets(entry))
     else if (key === "makelink") makeLinks(entry)
@@ -1818,6 +1923,24 @@ Item {
 
           Text {
             anchors.verticalCenter: parent.verticalCenter
+            visible: root.isTrashRoot(root.activePath) && root.activePane().rows.length > 0
+            text: "Empty trash"
+            color: emptyHover.hovered ? Color.urgent : Util.alpha(Color.foreground, 0.75)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            font.underline: emptyHover.hovered
+
+            HoverHandler { id: emptyHover }
+
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.askEmptyTrash()
+            }
+          }
+
+          Text {
+            anchors.verticalCenter: parent.verticalCenter
             text: root.statusText
             color: Util.alpha(Color.foreground, 0.45)
             font.family: Style.font.family
@@ -2177,9 +2300,41 @@ Item {
             width: parent.width
             visible: root.dialogMode === "rename" || root.dialogMode === "newfolder"
               || root.dialogMode === "newfile" || root.dialogMode === "path"
-              || root.dialogMode === "selectmatch"
+              || root.dialogMode === "selectmatch" || root.dialogMode === "compress"
             onAccepted: root.submitDialog()
             Keys.onEscapePressed: root.closeDialog()
+          }
+
+          Dropdown {
+            width: parent.width
+            visible: root.dialogMode === "compress"
+            showLabel: false
+            value: root.compressFormat
+            options: [
+              { label: ".zip  (works everywhere)", value: "zip" },
+              { label: ".tar.xz  (smaller, Linux)", value: "tar.xz" },
+              { label: ".tar.gz", value: "tar.gz" },
+              { label: ".7z", value: "7z" }
+            ]
+            onChanged: function (v) { root.compressFormat = String(v) }
+          }
+
+          Row {
+            visible: root.dialogMode === "compress"
+            anchors.right: parent.right
+            spacing: Style.space(8)
+
+            Button {
+              text: "Cancel"
+              bordered: true
+              onClicked: root.closeDialog()
+            }
+
+            Button {
+              text: "Compress"
+              bordered: true
+              onClicked: root.submitDialog()
+            }
           }
 
           Text {
@@ -2943,7 +3098,12 @@ Item {
         var action = root.confirmAction
         root.dialogPayload = null
         root.confirmAction = ""
-        if (targets && action === "trash") root.performTrash(targets)
+        if (action === "emptytrash") {
+          root.service.emptyTrash(function () {
+            root.statusText = "Trash emptied"
+            root.activePane().refresh()
+          })
+        } else if (targets && action === "trash") root.performTrash(targets)
         else if (targets && action === "pickreplace") root.completePick(targets)
         else if (targets) root.performDelete(targets)
         keyCatcher.forceActiveFocus()

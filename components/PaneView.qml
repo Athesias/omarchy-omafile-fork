@@ -504,6 +504,14 @@ Item {
       || e === "webp" || e === "bmp" || e === "svg" || e === "ico" || e === "avif"
   }
 
+  // Image files load directly; videos and PDFs get a thumbnail from the helper
+  function previewSource(entry) {
+    if (pane.previewable(entry)) return Util.fileUrl(entry.path)
+    if (!pane.thumbnails || !service || !Model.hasThumbnailer(entry)) return ""
+    if (service.thumbVersion < 0) return ""
+    return service.thumbnailFor(entry.path, entry.mtime)
+  }
+
   function openRow(row) {
     openEntry(Model.decodeEntry(row, pane.path))
   }
@@ -800,8 +808,8 @@ Item {
                   Image {
                     id: rowThumb
                     anchors.fill: parent
-                    visible: pane.previewable(row.entry) && status === Image.Ready
-                    source: pane.previewable(row.entry) ? Util.fileUrl(row.entry.path) : ""
+                    visible: source != "" && status === Image.Ready
+                    source: pane.previewSource(row.entry)
                     sourceSize.width: Style.space(36)
                     sourceSize.height: pane.listIconSize * 2
                     fillMode: Image.PreserveAspectFit
@@ -942,8 +950,8 @@ Item {
               Image {
                 id: compactThumb
                 anchors.fill: parent
-                visible: pane.compactView && pane.previewable(cell.entry) && status === Image.Ready
-                source: pane.compactView && pane.previewable(cell.entry) ? Util.fileUrl(cell.entry.path) : ""
+                visible: pane.compactView && source != "" && status === Image.Ready
+                source: pane.compactView ? pane.previewSource(cell.entry) : ""
                 sourceSize.width: Style.space(36)
                 sourceSize.height: pane.listIconSize * 2
                 fillMode: Image.PreserveAspectFit
@@ -992,8 +1000,8 @@ Item {
                 anchors.centerIn: parent
                 width: parent.width
                 height: parent.height
-                visible: !pane.compactView && pane.previewable(cell.entry) && status === Image.Ready
-                source: !pane.compactView && pane.previewable(cell.entry) ? Util.fileUrl(cell.entry.path) : ""
+                visible: !pane.compactView && source != "" && status === Image.Ready
+                source: !pane.compactView ? pane.previewSource(cell.entry) : ""
                 sourceSize.width: pane.view === "gallery" ? Style.space(360) : Style.space(96)
                 sourceSize.height: pane.gridIconSize * 2
                 fillMode: Image.PreserveAspectFit

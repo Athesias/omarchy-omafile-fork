@@ -930,6 +930,14 @@ def op_delete(req):
                 shutil.rmtree(b)
             else:
                 os.unlink(b)
+            # Deleting straight from the trash also drops its .trashinfo record
+            files_dir, name = os.path.split(b)
+            if os.path.basename(files_dir) == b"files" and (
+                    files_dir.endswith(b"/Trash/files") or b"/.Trash-" in files_dir):
+                try:
+                    os.unlink(os.path.join(os.path.dirname(files_dir), b"info", name + b".trashinfo"))
+                except OSError:
+                    pass
             results.append({"path": p, "ok": True})
         except OSError as e:
             results.append({"path": p, "ok": False, "message": e.strerror or str(e)})
@@ -955,6 +963,23 @@ def list_trash_roots():
     except OSError:
         pass
     return roots
+
+def unique_path(path_bytes):
+    if not os.path.lexists(path_bytes):
+        return path_bytes
+    head, tail = os.path.split(path_bytes)
+    stem, ext = os.path.splitext(tail)
+    if stem.endswith(b".tar"):
+        stem, ext = stem[:-4], b".tar" + ext
+    if not stem:
+        stem, ext = tail, b""
+    n = 2
+    while True:
+        candidate = os.path.join(head, stem + b" (" + str(n).encode() + b")" + ext)
+        if not os.path.lexists(candidate):
+            return candidate
+        n += 1
+
 
 def op_restore(req):
     req_id = req["id"]
@@ -990,6 +1015,8 @@ def op_restore(req):
                 parent = os.path.dirname(orig_bytes)
                 if parent:
                     os.makedirs(parent, exist_ok=True)
+                # Never overwrite something that has since taken the old name
+                orig_bytes = unique_path(orig_bytes)
                 os.rename(src_in_files, orig_bytes)
                 os.remove(info_path)
                 results.append({"path": to_str(orig_bytes), "ok": True})
@@ -1955,6 +1982,209 @@ def op_setbackground(req):
     send_done(req_id, path=target)
 
 
+ARCHIVE_SUFFIXES = (".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst", ".tar.lz", ".tar",
+                    ".tgz", ".txz", ".tbz", ".tbz2", ".tzst", ".zip", ".7z", ".rar",
+                    ".jar", ".cpio", ".iso", ".xpi", ".apk", ".cbz", ".cbr")
+COMPRESS_FORMATS = {
+    "zip": (".zip", ["-a", "-cf"]),
+    "tar.xz": (".tar.xz", ["-cJf"]),
+    "tar.gz": (".tar.gz", ["-czf"]),
+    "7z": (".7z", None),
+}
+
+
+def archive_stem(name):
+    lower = name.lower()
+    for suffix in ARCHIVE_SUFFIXES:
+        if lower.endswith(suffix) and len(name) > len(suffix):
+            return name[:-len(suffix)]
+    return os.path.splitext(name)[0] or name
+
+
+def run_cancellable(argv, cancel_event, cwd=None):
+    """Run a long tool, killing it if the request is cancelled."""
+    proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE, env=trusted_env(), start_new_session=True)
+    while True:
+        try:
+            _, err = proc.communicate(timeout=0.25)
+            return proc.returncode, (err or b"").decode("utf-8", "replace").strip()
+        except subprocess.TimeoutExpired:
+            if cancel_event.is_set():
+                kill_process_group(proc)
+                return -1, "cancelled"
+
+
+def op_compress(req, cancel_event):
+    req_id = req["id"]
+    paths = req.get("paths") or []
+    name = req.get("name")
+    fmt = req.get("format") or "zip"
+    if not paths or not all(isinstance(x, str) for x in paths) or fmt not in COMPRESS_FORMATS:
+        send_error(req_id, "EINVAL", "paths and a known format are required")
+        return
+    if not isinstance(name, str) or not name.strip() or "/" in name:
+        send_error(req_id, "EINVAL", "a name is required")
+        return
+    suffix, flags = COMPRESS_FORMATS[fmt]
+    base = os.path.commonpath([os.path.dirname(x) for x in paths]) if len(paths) > 1 else os.path.dirname(paths[0])
+    rel = [os.path.relpath(x, base) for x in paths]
+    name = name.strip()
+    if not name.lower().endswith(suffix):
+        name += suffix
+    dest = to_str(unique_path(to_bytes(os.path.join(base, name))))
+    try:
+        if flags is None:
+            argv = [trusted_program("7z"), "a", "-bd", "-y", dest, "--"] + rel
+        else:
+            argv = [trusted_program("bsdtar")] + flags + [dest, "--"] + rel
+    except FileNotFoundError as e:
+        send_error(req_id, "EUNSUPPORTED", str(e))
+        return
+    code, err = run_cancellable(argv, cancel_event, cwd=base)
+    if code != 0:
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
+        send_error(req_id, "ECANCELED" if code == -1 else "EFAIL", err or "could not compress", dest)
+        return
+    send_done(req_id, path=dest)
+
+
+def op_extract(req, cancel_event):
+    """Extract next to the archive. A single top-level item lands as is; several
+    go into a folder named after the archive, the way Nautilus does it."""
+    req_id = req["id"]
+    path = req.get("path")
+    if not isinstance(path, str) or not os.path.isfile(path):
+        send_error(req_id, "EINVAL", "an archive file is required")
+        return
+    dest_dir = os.path.dirname(path)
+    try:
+        work = tempfile.mkdtemp(prefix=".omafile-extract-", dir=dest_dir)
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e), dest_dir)
+        return
+    try:
+        if path.lower().endswith(".7z"):
+            argv = [trusted_program("7z"), "x", "-bd", "-y", "-o" + work, "--", path]
+        else:
+            argv = [trusted_program("bsdtar"), "-xf", path, "-C", work]
+        code, err = run_cancellable(argv, cancel_event)
+        if code != 0:
+            send_error(req_id, "ECANCELED" if code == -1 else "EFAIL", err or "could not extract", path)
+            return
+        items = os.listdir(work)
+        if len(items) == 1:
+            final = unique_path(to_bytes(os.path.join(dest_dir, items[0])))
+            os.rename(os.path.join(work, items[0]), final)
+        else:
+            final = unique_path(to_bytes(os.path.join(dest_dir, archive_stem(os.path.basename(path)))))
+            os.rename(work, final)
+            work = None
+        send_done(req_id, path=to_str(final))
+    except (OSError, FileNotFoundError) as e:
+        send_error(req_id, "EFAIL", getattr(e, "strerror", None) or str(e), path)
+    finally:
+        if work and os.path.isdir(work):
+            shutil.rmtree(work, ignore_errors=True)
+
+
+THUMB_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(HOME, ".cache"), "omafile", "thumbs")
+THUMB_SLOTS = threading.Semaphore(2)
+THUMB_VIDEO_EXTS = (".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi", ".wmv", ".flv", ".mpg", ".mpeg", ".ts")
+
+
+def png_text_chunks(path):
+    out = {}
+    try:
+        with open(path, "rb") as f:
+            if f.read(8) != b"\x89PNG\r\n\x1a\n":
+                return out
+            while True:
+                head = f.read(8)
+                if len(head) < 8:
+                    break
+                length, kind = struct.unpack(">I4s", head)
+                data = f.read(length)
+                f.read(4)
+                if kind == b"tEXt" and b"\0" in data:
+                    k, v = data.split(b"\0", 1)
+                    out[k.decode("latin-1")] = v.decode("latin-1")
+                elif kind == b"IDAT":
+                    break
+    except OSError:
+        pass
+    return out
+
+
+def freedesktop_thumb(path, mtime):
+    """Reuse a thumbnail Nautilus or another app already made."""
+    import hashlib
+    from urllib.parse import quote
+    uri = "file://" + quote(path)
+    digest = hashlib.md5(uri.encode("utf-8")).hexdigest()
+    base = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(HOME, ".cache"), "thumbnails")
+    for size in ("large", "x-large", "normal"):
+        candidate = os.path.join(base, size, digest + ".png")
+        if os.path.isfile(candidate):
+            meta = png_text_chunks(candidate)
+            if meta.get("Thumb::MTime") == str(int(mtime)):
+                return candidate
+    return None
+
+
+def op_thumb(req, cancel_event):
+    import hashlib
+    req_id = req["id"]
+    path = req.get("path")
+    if not isinstance(path, str) or not os.path.isfile(path):
+        send_error(req_id, "EINVAL", "a file is required")
+        return
+    try:
+        mtime = int(os.stat(path).st_mtime)
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e), path)
+        return
+    found = freedesktop_thumb(path, mtime)
+    if found:
+        send_done(req_id, thumb=found)
+        return
+    os.makedirs(THUMB_DIR, exist_ok=True)
+    out = os.path.join(THUMB_DIR, hashlib.md5(path.encode("utf-8", "surrogateescape")).hexdigest()
+                       + "-" + str(mtime) + ".png")
+    if os.path.isfile(out):
+        send_done(req_id, thumb=out)
+        return
+    lower = path.lower()
+    with THUMB_SLOTS:
+        if cancel_event.is_set():
+            send_error(req_id, "ECANCELED", "cancelled")
+            return
+        tmp = out + ".part"
+        try:
+            if lower.endswith(".pdf"):
+                argv = [trusted_program("pdftoppm"), "-png", "-singlefile", "-f", "1", "-l", "1",
+                        "-scale-to", "256", path, tmp[:-4]]
+                produced = tmp[:-4] + ".png"
+            elif lower.endswith(THUMB_VIDEO_EXTS):
+                argv = [trusted_program("ffmpegthumbnailer"), "-i", path, "-o", tmp, "-s", "256", "-q", "8", "-c", "png"]
+                produced = tmp
+            else:
+                send_error(req_id, "EUNSUPPORTED", "no thumbnailer for this file")
+                return
+        except FileNotFoundError as e:
+            send_error(req_id, "EUNSUPPORTED", str(e))
+            return
+        code, err = run_cancellable(argv, cancel_event)
+        if code != 0 or not os.path.isfile(produced):
+            send_error(req_id, "EFAIL", err or "could not make a thumbnail", path)
+            return
+        os.replace(produced, out)
+    send_done(req_id, thumb=out)
+
+
 def op_drives(req):
     req_id = req["id"]
     drives = []
@@ -2258,6 +2488,9 @@ CANCELLABLE_OPS = {
     "copy": lambda r, c: op_copy_move(r, c, False),
     "move": lambda r, c: op_copy_move(r, c, True),
     "mounturi": op_mounturi,
+    "compress": op_compress,
+    "extract": op_extract,
+    "thumb": op_thumb,
     "mountdev": op_mountdev,
     "unmountdev": op_unmountdev,
     "recent": op_recent,

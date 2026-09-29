@@ -66,6 +66,33 @@ function globToRegExp(pattern) {
   return new RegExp('^' + out + '$', 'i');
 }
 
+var thumbnailerExtSet = toSet(['mp4', 'mkv', 'webm', 'mov', 'm4v', 'avi', 'wmv', 'flv', 'mpg', 'mpeg', 'ts', 'pdf']);
+
+function hasThumbnailer(entry) {
+  if (!entry || entry.isDir || entry.isBroken || entry.size <= 0) return false;
+  return !!thumbnailerExtSet[String(entry.ext || '').toLowerCase()];
+}
+
+var archiveSuffixes = ['.tar.gz', '.tar.xz', '.tar.bz2', '.tar.zst', '.tar.lz', '.tar', '.tgz', '.txz',
+  '.tbz', '.tbz2', '.tzst', '.zip', '.7z', '.rar', '.jar', '.cpio', '.iso', '.xpi', '.apk', '.cbz', '.cbr'];
+
+function isArchive(entry) {
+  if (!entry || entry.isDir || entry.isBroken) return false;
+  var lower = String(entry.name || '').toLowerCase();
+  for (var i = 0; i < archiveSuffixes.length; i++)
+    if (lower.length > archiveSuffixes[i].length && lower.slice(-archiveSuffixes[i].length) === archiveSuffixes[i]) return true;
+  return false;
+}
+
+function archiveStem(name) {
+  var lower = String(name || '').toLowerCase();
+  for (var i = 0; i < archiveSuffixes.length; i++)
+    if (lower.length > archiveSuffixes[i].length && lower.slice(-archiveSuffixes[i].length) === archiveSuffixes[i])
+      return String(name).slice(0, -archiveSuffixes[i].length);
+  var dot = String(name || '').lastIndexOf('.');
+  return dot > 0 ? String(name).slice(0, dot) : String(name || '');
+}
+
 function isTranscodable(entry) {
   if (!entry || entry.isDir || entry.isBroken) return false;
   return !!transcodeExtSet[String(entry.ext || '').toLowerCase()];

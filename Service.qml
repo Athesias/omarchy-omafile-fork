@@ -766,6 +766,53 @@ Item {
     Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", cmd])
   }
 
+  // Items in the trash are named after their .trashinfo file
+  function restoreFromTrash(names, onDone, onError) {
+    return request({ op: "restore", items: names }, {
+      onDone: function (m) { refreshTrash(); if (onDone) onDone(m) },
+      onError: onError
+    })
+  }
+
+  function compressPaths(paths, name, format, onDone, onError) {
+    return request({ op: "compress", paths: paths, name: name, format: format },
+      { onDone: onDone, onError: onError })
+  }
+
+  function extractArchive(path, onDone, onError) {
+    return request({ op: "extract", path: path }, { onDone: onDone, onError: onError })
+  }
+
+  // Thumbnails for videos and PDFs; results are cached by path for the session
+  property var thumbCache: ({})
+  property int thumbVersion: 0
+  property var _thumbPending: ({})
+
+  function thumbnailFor(path, mtime) {
+    var key = path + "|" + mtime
+    var hit = thumbCache[key]
+    if (hit !== undefined) return hit
+    if (_thumbPending[key]) return ""
+    _thumbPending[key] = true
+    // Called from image bindings, so the request goes out after they settle
+    Qt.callLater(function () { root.requestThumb(path, key) })
+    return ""
+  }
+
+  function requestThumb(path, key) {
+    request({ op: "thumb", path: path }, {
+      onDone: function (m) {
+        delete root._thumbPending[key]
+        root.thumbCache[key] = m.thumb ? "file://" + m.thumb : ""
+        root.thumbVersion++
+      },
+      onError: function () {
+        delete root._thumbPending[key]
+        root.thumbCache[key] = ""
+      }
+    })
+  }
+
   function sendViaLocalSend(paths) {
     if (!paths || paths.length === 0) return
     Quickshell.execDetached(["localsend", "--headless", "send"].concat(paths))
