@@ -1723,7 +1723,13 @@ Item {
     target: root.service
     enabled: root.service !== null
     function onConflictRaised(jobId, info) {
-      root.showDialog("conflict", "File exists", "", { jobId: jobId, info: info })
+      root.conflictApplyAll = false
+      root.conflictSource = null
+      var name = Model.basename(String(info.dest || ""))
+      root.showDialog("conflict", "Replace \"" + name + "\"?", "", { jobId: jobId, info: info })
+      root.service.statPaths([String(info.source || "")], function (items) {
+        if (items && items.length > 0) root.conflictSource = items[0]
+      })
     }
     function onConflictResolved(jobId) {
       if (root.dialogMode === "conflict" && root.dialogPayload && root.dialogPayload.jobId === jobId)
@@ -2508,7 +2514,8 @@ Item {
         anchors.centerIn: parent
         width: Math.min(root.width - Style.space(24), root.dialogMode === "settings" ? Style.space(780)
           : (root.dialogMode === "shortcuts" ? Style.space(470)
-          : ((root.dialogMode === "openwith" || root.dialogMode === "properties")
+          : (root.dialogMode === "conflict" ? Style.space(480)
+          : (root.dialogMode === "openwith" || root.dialogMode === "properties")
             ? Style.space(420) : Style.space(360))))
         height: dialogColumn.implicitHeight + Style.space(28)
         color: Color.popups.background
@@ -3420,7 +3427,7 @@ Item {
           Column {
             width: parent.width
             visible: root.dialogMode === "conflict"
-            spacing: Style.space(8)
+            spacing: Style.space(10)
 
             Text {
               width: parent.width
@@ -3431,32 +3438,124 @@ Item {
               wrapMode: Text.Wrap
             }
 
+            // The two files side by side, as Nautilus shows them
+            Rectangle {
+              width: parent.width
+              height: conflictDetails.implicitHeight + Style.space(16)
+              radius: Style.cornerRadius
+              color: Util.alpha(Color.popups.text, 0.05)
+              border.width: Math.max(1, Style.space(1))
+              border.color: Util.alpha(Color.popups.text, 0.1)
+
+              Column {
+                id: conflictDetails
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(10)
+                anchors.rightMargin: Style.space(10)
+                spacing: Style.space(6)
+
+                Repeater {
+                  model: root.dialogMode === "conflict" ? root.conflictRows() : []
+
+                  delegate: Row {
+                    required property var modelData
+                    width: conflictDetails.width
+                    spacing: Style.space(10)
+
+                    Text {
+                      width: Style.space(80)
+                      text: modelData.label
+                      color: Util.alpha(Color.popups.text, 0.55)
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                    }
+
+                    Text {
+                      width: parent.width - Style.space(90)
+                      text: modelData.value
+                      color: Color.popups.text
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideMiddle
+                    }
+                  }
+                }
+              }
+            }
+
             Row {
               spacing: Style.space(8)
 
+              Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(18)
+                height: Style.space(18)
+                radius: Style.space(4)
+                color: root.conflictApplyAll ? Color.accent : "transparent"
+                border.width: Math.max(1, Style.space(1))
+                border.color: root.conflictApplyAll ? Color.accent : Util.alpha(Color.popups.text, 0.4)
+
+                Text {
+                  anchors.centerIn: parent
+                  visible: root.conflictApplyAll
+                  text: Icons.actionGlyph("check")
+                  color: Color.popups.background
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
+              }
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Do this for all remaining conflicts"
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+
+              TapHandler { onTapped: root.conflictApplyAll = !root.conflictApplyAll }
+            }
+
+            // Wraps onto a second line instead of running past the card
+            Flow {
+              width: parent.width
+              layoutDirection: Qt.RightToLeft
+              spacing: Style.space(8)
+
               Button {
-                text: "Replace  R"
+                text: "Replace"
                 bordered: true
-                onClicked: root.resolveConflict("overwrite", false)
+                onClicked: root.resolveConflict("overwrite", root.conflictApplyAll)
               }
 
               Button {
-                text: "Keep both  K"
+                text: "Keep both"
                 bordered: true
-                onClicked: root.resolveConflict("rename", false)
+                onClicked: root.resolveConflict("rename", root.conflictApplyAll)
               }
 
               Button {
-                text: "Skip  S"
+                text: "Skip"
                 bordered: true
-                onClicked: root.resolveConflict("skip", false)
+                onClicked: root.resolveConflict("skip", root.conflictApplyAll)
               }
 
               Button {
-                text: "Skip all  A"
+                text: "Cancel"
                 bordered: true
-                onClicked: root.resolveConflict("skip", true)
+                onClicked: root.resolveConflict("cancel", false)
               }
+            }
+
+            Text {
+              width: parent.width
+              horizontalAlignment: Text.AlignRight
+              text: "R replace  ·  K keep both  ·  S skip  ·  A skip all"
+              color: Util.alpha(Color.popups.text, 0.4)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
             }
           }
 
@@ -3710,11 +3809,34 @@ Item {
     rememberSession()
   }
 
+  property bool conflictApplyAll: false
+  property var conflictSource: null
+
   function conflictMessage() {
     var payload = dialogPayload
     if (!payload || !payload.info) return ""
     var info = payload.info
-    return "\"" + Model.basename(String(info.dest || "")) + "\" already exists in this folder."
+    var what = info.destKind === "d" ? "A folder" : "A file"
+    return what + " named \"" + Model.basename(String(info.dest || "")) + "\" already exists in \""
+      + Model.basename(Model.dirname(String(info.dest || ""))) + "\"."
+  }
+
+  function describeFile(kind, size, mtime) {
+    var now = Date.now()
+    var when = mtime ? Model.formatDate(Number(mtime), now) : ""
+    var what = kind === "d" ? "Folder" : Model.formatSize(Number(size) || 0)
+    return when ? what + "  ·  modified " + when : what
+  }
+
+  function conflictRows() {
+    var payload = dialogPayload
+    if (!payload || !payload.info) return []
+    var info = payload.info
+    var rows = [{ label: "Existing", value: describeFile(info.destKind, info.destSize, info.destMtime) }]
+    var src = conflictSource
+    rows.push({ label: "Incoming", value: src ? describeFile(src.kind, src.size, src.mtime) : "" })
+    rows.push({ label: "From", value: Model.dirname(String(info.source || "")) })
+    return rows
   }
 
   function resolveConflict(action, applyAll) {

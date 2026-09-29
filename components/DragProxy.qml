@@ -5,7 +5,9 @@ import QtQuick
 Item {
   id: proxy
 
-  property var pane: null
+  // The PaneView whose selection is being dragged. Not called `pane`, which
+  // would shadow the view's id in the `pane: pane` binding at the use site.
+  property var view: null
   property bool active: false
 
   width: 1
@@ -14,8 +16,8 @@ Item {
   Drag.dragType: Drag.Automatic
   Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
   Drag.proposedAction: Qt.MoveAction
-  Drag.mimeData: ({ "text/uri-list": pane ? pane.dragUriList : "" })
-  Drag.imageSource: pane ? pane.dragImage : ""
+  Drag.mimeData: ({ "text/uri-list": view ? view.dragUriList : "" })
+  Drag.imageSource: view && view.dragGrab ? view.dragGrab.url : ""
   Drag.active: active
 
   Drag.onDragFinished: function (action) {

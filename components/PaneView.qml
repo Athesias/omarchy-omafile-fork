@@ -87,7 +87,8 @@ Item {
 
   // Drag and drop: what a drag started here carries
   property string dragUriList: ""
-  property string dragImage: ""
+  // The grab result must stay referenced or its image URL stops resolving
+  property var dragGrab: null
 
   function fileUri(path) {
     return "file://" + encodeURI(String(path)).replace(/#/g, "%23").replace(/\?/g, "%3F")
@@ -102,7 +103,7 @@ Item {
     dragBadgeGlyph.text = Icons.glyphFor(entry)
     dragBadgeLabel.text = paths.length === 1 ? entry.name : Model.formatCount(paths.length, "item", "items")
     Qt.callLater(function () {
-      dragBadge.grabToImage(function (result) { pane.dragImage = String(result.url) })
+      dragBadge.grabToImage(function (result) { pane.dragGrab = result })
     })
   }
 
@@ -933,7 +934,7 @@ Item {
 
           DragProxy {
             id: rowDrag
-            pane: pane
+            view: pane
             active: rowMouse.drag.active
           }
 
@@ -1120,7 +1121,7 @@ Item {
 
           DragProxy {
             id: cellDrag
-            pane: pane
+            view: pane
             active: cellMouse.drag.active
           }
 

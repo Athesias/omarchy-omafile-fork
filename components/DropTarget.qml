@@ -9,6 +9,23 @@ DropArea {
 
   signal filesDropped(var urls, string target)
 
+  // drag.urls can come through empty on Wayland even when the drag carries
+  // text/uri-list, so read the raw list as well
+  function urlsOf(ev) {
+    var out = []
+    var list = ev.urls || []
+    for (var i = 0; i < list.length; i++) out.push(String(list[i]))
+    if (out.length === 0 && typeof ev.getDataAsString === "function") {
+      var raw = String(ev.getDataAsString("text/uri-list") || "")
+      var lines = raw.split(/\r?\n/)
+      for (var j = 0; j < lines.length; j++) {
+        var line = lines[j].trim()
+        if (line && line.charAt(0) !== "#") out.push(line)
+      }
+    }
+    return out
+  }
+
   function blocked(urls) {
     if (area.target === "") return true
     if (area.target === "trash:") return false
@@ -20,7 +37,7 @@ DropArea {
   }
 
   onEntered: function (drag) {
-    if (!drag.hasUrls || blocked(drag.urls)) {
+    if (!drag.hasUrls || blocked(urlsOf(drag))) {
       drag.accepted = false
       return
     }
@@ -28,9 +45,8 @@ DropArea {
   }
 
   onDropped: function (drop) {
-    if (!drop.hasUrls || blocked(drop.urls)) return
-    var urls = []
-    for (var i = 0; i < drop.urls.length; i++) urls.push(String(drop.urls[i]))
+    var urls = urlsOf(drop)
+    if (urls.length === 0 || blocked(urls)) return
     drop.accept(Qt.CopyAction)
     area.filesDropped(urls, area.target)
   }
