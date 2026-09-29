@@ -574,6 +574,16 @@ Item {
     for (var i = 0; i < list.length; i++) if (String(list[i]) === String(path)) return true
     return false
   }
+  // Pictures and videos in the selection, or just the clicked file
+  function transcodeTargets(entry) {
+    if (!Model.isTranscodable(entry)) return []
+    var picked = activePane().collectSelected()
+    var out = []
+    for (var i = 0; i < picked.length; i++)
+      if (Model.isTranscodable(picked[i])) out.push(picked[i].path)
+    return out.length > 0 ? out : [entry.path]
+  }
+
   function contextActions(entry) {
     var p = activePane()
     var hasEntry = entry !== null && entry !== undefined
@@ -582,6 +592,10 @@ Item {
       items.push({ key: "open", label: entry.isDir ? "Open" : "Open", glyph: Icons.actionGlyph("open") })
       items.push({ key: "openwith", label: "Open with", glyph: Icons.actionGlyph("open") })
       if (!entry.isDir) items.push({ key: "preview", label: "Preview", glyph: Icons.actionGlyph("search") })
+      var media = transcodeTargets(entry)
+      if (media.length > 0)
+        items.push({ key: "transcode", glyph: Icons.glyphFor(entry),
+          label: media.length === 1 ? "Transcode" : "Transcode " + media.length + " items" })
       if (entry.isDir) {
         items.push({ key: "opentab", label: "Open in new tab", glyph: Icons.actionGlyph("add") })
         items.push({
@@ -686,6 +700,7 @@ Item {
     if (key.indexOf("sort:") === 0) applySortPreset(key.substring(5))
     else if (key.indexOf("view:") === 0) setView(key.substring(5))
     else if (key === "preview") showPreview(entry)
+    else if (key === "transcode") service.transcode(transcodeTargets(entry))
     else if (key === "open") p.openEntry(entry)
     else if (key === "openwith") showDialog("openwith", "Open with", "", entry)
     else if (key === "opentab") newTab(activeSide, entry.path)

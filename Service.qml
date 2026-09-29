@@ -751,6 +751,21 @@ Item {
       "bash", "-c", "claude; exec bash"])
   }
 
+  function transcode(paths) {
+    if (!paths || paths.length === 0) return
+    var cmd
+    if (paths.length === 1) {
+      cmd = "omarchy-transcode " + Model.shellQuote(paths[0])
+    } else {
+      var parts = []
+      for (var i = 0; i < paths.length; i++)
+        parts.push("echo " + Model.shellQuote("Transcoding " + paths[i])
+          + " && omarchy-transcode " + Model.shellQuote(paths[i]) + " || true")
+      cmd = parts.join("; ")
+    }
+    Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", cmd])
+  }
+
   function openEditor(path) {
     var configured = String(setting("editor", "") || "").trim()
     if (configured) Quickshell.execDetached(["sh", "-c", configured + " \"$1\"", "omafile", path])

@@ -42,6 +42,19 @@ function pad2(n) {
   return (n < 10 ? '0' : '') + n;
 }
 
+// Formats omarchy-transcode handles, same list as the Nautilus extension
+var transcodeExtSet = toSet(['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'avif',
+  'mp4', 'mov', 'm4v', 'mkv', 'webm', 'avi']);
+
+function isTranscodable(entry) {
+  if (!entry || entry.isDir || entry.isBroken) return false;
+  return !!transcodeExtSet[String(entry.ext || '').toLowerCase()];
+}
+
+function shellQuote(text) {
+  return "'" + String(text).replace(/'/g, "'\\''") + "'";
+}
+
 function extOf(name) {
   var idx = name.lastIndexOf('.');
   if (idx <= 0) return '';
