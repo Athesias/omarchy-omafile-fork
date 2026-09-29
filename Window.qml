@@ -1,4 +1,5 @@
 import QtQuick
+import QtQml
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Hyprland
@@ -110,6 +111,57 @@ Item {
       service: host.service
       onDismissRequested: host.requestClose()
       onCloseRequested: host.close()
+      onNewWindowRequested: function (path) { host.openExtra(path) }
+    }
+  }
+
+  // Extra windows from New window / Open in new window. A ListModel keeps the
+  // existing windows alive when one is added or closed.
+  ListModel { id: extraWindows }
+  property int nextExtraId: 1
+
+  function openExtra(path) {
+    applyFloatRule()
+    extraWindows.append({ wid: nextExtraId++, startPath: String(path || "") })
+  }
+
+  function closeExtra(wid) {
+    for (var i = 0; i < extraWindows.count; i++) {
+      if (extraWindows.get(i).wid === wid) {
+        extraWindows.remove(i)
+        return
+      }
+    }
+  }
+
+  Instantiator {
+    model: extraWindows
+
+    delegate: FloatingWindow {
+      id: extraWindow
+      required property int wid
+      required property string startPath
+      visible: true
+      title: "Omafile"
+      color: Color.background
+      implicitWidth: 1100
+      implicitHeight: 720
+      minimumSize: Qt.size(640, 420)
+
+      onVisibleChanged: if (!visible) host.closeExtra(extraWindow.wid)
+
+      Browser {
+        anchors.fill: parent
+        shell: host.shell
+        manifest: host.manifest
+        service: host.service
+        secondary: true
+        secondaryStart: extraWindow.startPath
+        onDismissRequested: host.closeExtra(extraWindow.wid)
+        onCloseRequested: host.closeExtra(extraWindow.wid)
+        onNewWindowRequested: function (path) { host.openExtra(path) }
+        Component.onCompleted: open("{}")
+      }
     }
   }
 

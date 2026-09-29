@@ -46,6 +46,7 @@ Item {
 
   signal directoryChanged(string path, var names)
   signal conflictRaised(int jobId, var info)
+  signal conflictResolved(int jobId)
 
   readonly property int activeTransfers: countActive()
   readonly property real transferFraction: aggregateFraction()
@@ -387,6 +388,8 @@ Item {
 
   function resolveConflict(jobId, action, applyAll) {
     sendRaw({ id: jobId, op: "resolve", action: action, applyAll: applyAll === true })
+    // Every open window showed the question; the others can drop it now
+    conflictResolved(jobId)
     updateTransfer(jobId, { state: action === "cancel" ? "cancelled" : "running" })
   }
 

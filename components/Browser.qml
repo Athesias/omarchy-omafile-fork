@@ -16,6 +16,12 @@ Item {
   signal openRequested()
   signal closeRequested()
   signal dismissRequested()
+  signal newWindowRequested(string path)
+
+  // Extra windows opened with New window: they start at one folder, don't
+  // save or restore the session and leave file picking to the main window
+  property bool secondary: false
+  property string secondaryStart: ""
 
   property bool split: false
   property int activeSide: 0
@@ -240,7 +246,7 @@ Item {
     return activeSide === 1 ? 0 : 1
   }
   function rememberSession() {
-    if (!service || !sessionRestored) return
+    if (!service || !sessionRestored || secondary) return
     storeCurrentTab(activeSide)
     service.rememberSession({
       split: split, activeSide: activeSide, sidebar: sidebarVisible,
@@ -248,7 +254,7 @@ Item {
     })
   }
   function restoreSession() {
-    var s = service ? service.session : null
+    var s = service && !secondary ? service.session : null
     if (s && s.tabsA && s.tabsA.length > 0) {
       tabsA = s.tabsA
       activeA = Math.max(0, Math.min(s.tabsA.length - 1, Number(s.activeA) || 0))
@@ -259,7 +265,7 @@ Item {
         activeB = Math.max(0, Math.min(s.tabsB.length - 1, Number(s.activeB) || 0))
       }
     } else {
-      tabsA = [defaultTab(startPath())]
+      tabsA = [defaultTab(secondary && secondaryStart ? secondaryStart : startPath())]
       activeA = 0
     }
     applyTab(0, tabsA[activeA])
@@ -306,7 +312,7 @@ Item {
   }
 
   readonly property var pick: service ? service.pickRequest : null
-  readonly property bool picking: pick !== null && pick !== undefined
+  readonly property bool picking: !secondary && pick !== null && pick !== undefined
   readonly property bool pickSaving: picking && (pick.mode === "save" || pick.mode === "savefiles")
   readonly property bool pickNeedsName: picking && pick.mode === "save"
   property int pickFilter: -1
@@ -936,6 +942,7 @@ Item {
         items.push({ key: "extract", label: "Extract here", glyph: Icons.glyphForCategory("archive") })
       if (entry.isDir) {
         items.push({ key: "opentab", label: "Open in new tab", glyph: Icons.actionGlyph("add") })
+        items.push({ key: "openwindow", label: "Open in new window", glyph: Icons.actionGlyph("add") })
         items.push({
           key: "bookmark",
           label: root.isBookmarked(entry.path) ? "Remove bookmark" : "Add to bookmarks",
@@ -970,6 +977,7 @@ Item {
       })
       items.push({ key: "terminal", label: "Open in terminal", glyph: Icons.actionGlyph("terminal") })
       items.push({ key: "claude", label: "Open Claude Code here", glyph: Icons.actionGlyph("terminal") })
+      items.push({ key: "newwindow", label: "New window", glyph: Icons.actionGlyph("add") })
       items.push({ key: "selectmatch", label: "Select items matching", glyph: Icons.actionGlyph("search") })
       items.push({ key: "refresh", label: "Refresh", glyph: Icons.actionGlyph("refresh") })
     }
@@ -1041,6 +1049,8 @@ Item {
     else if (key === "preview") showPreview(entry)
     else if (key === "transcode") service.transcode(transcodeTargets(entry))
     else if (key.indexOf("col:") === 0) toggleColumn(key.substring(4))
+    else if (key === "openwindow" && entry) newWindowRequested(entry.path)
+    else if (key === "newwindow") newWindowRequested(p.virtualView ? "" : p.path)
     else if (key === "location") openFileLocation(entry)
     else if (key === "star") {
       var starredNow = service.toggleStarred(actionTargets(entry))
@@ -1714,6 +1724,10 @@ Item {
     enabled: root.service !== null
     function onConflictRaised(jobId, info) {
       root.showDialog("conflict", "File exists", "", { jobId: jobId, info: info })
+    }
+    function onConflictResolved(jobId) {
+      if (root.dialogMode === "conflict" && root.dialogPayload && root.dialogPayload.jobId === jobId)
+        root.closeDialog()
     }
   }
   Item {
@@ -3550,6 +3564,7 @@ Item {
       { keys: "Ctrl+Space", label: "Add the item under the cursor" },
       { keys: "Shift+Click, Shift+Arrows", label: "Select a range" },
       { keys: "Ctrl+A", label: "Select everything" },
+      { keys: "Ctrl+S", label: "Select items matching a pattern" },
       { keys: "Ctrl+Shift+I", label: "Invert the selection" },
       { keys: "Escape", label: "Clear the selection" },
       { section: "Files" },
@@ -3576,7 +3591,8 @@ Item {
       { keys: "Mouse back / forward", label: "Back and forward" },
       { keys: "Ctrl+H", label: "Show hidden files" },
       { keys: "Ctrl+B", label: "Show or hide the sidebar" },
-      { keys: "Ctrl+F, or just type", label: "Search in this folder" },
+      { keys: "Ctrl+F, or just type", label: "Search in this folder (Contents searches inside files)" },
+      { keys: "Ctrl+wheel", label: "Zoom in and out" },
       { keys: "Ctrl+Comma", label: "Settings" },
       { keys: "F1", label: "This list" },
       { keys: "Ctrl+Q / Escape", label: "Close the window" },
