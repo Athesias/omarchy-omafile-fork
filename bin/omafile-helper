@@ -1446,7 +1446,7 @@ def gvfs_mounts():
     return out
 
 
-DESKTOP_ID = "xyzlab.omafile.desktop"
+DESKTOP_ID = "athesias.omafile.desktop"
 DESKTOP_DIR = os.path.join(
     os.environ.get("XDG_DATA_HOME") or os.path.join(HOME, ".local", "share"),
     "applications")
@@ -1916,7 +1916,7 @@ def op_cancel(req):
             stop_watch(handle, cancelled=True)
     send_done(req_id)
 
-PLUGIN_ENTRY_ID = "xyzlab.omafile"
+PLUGIN_ENTRY_ID = "athesias.omafile"
 SHELL_CONFIG_PATH = os.path.join(
     os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config"),
     "omarchy", "shell.json")

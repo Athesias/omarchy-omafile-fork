@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "xyzlab.omafile",
+  "id": "athesias.omafile",
   "name": "Omafile",
   "version": "1.1.0",
-  "author": "xyzlab",
+  "author": "athesias",
   "license": "MIT",
-  "description": "A file manager for Omarchy. Opens as a real window with tabs and dual panes, watches directories live, copies and moves in the background with progress, and puts places, drives, transfers and trash in the bar.",
+  "description": "A file manager for Omarchy. Opens as a real window with tabs and dual panes, watches directories live, copies and moves in the background with progress, and puts places, drives, transfers and trash in the bar. Local fork of xyzlab.omafile.",
   "kinds": [
     "service",
     "bar-widget",

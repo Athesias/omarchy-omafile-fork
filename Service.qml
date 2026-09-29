@@ -11,7 +11,7 @@ Item {
   property var shell: null
   property var manifest: null
 
-  readonly property string pluginId: "xyzlab.omafile"
+  readonly property string pluginId: "athesias.omafile"
   readonly property string home: Quickshell.env("HOME") || ""
   readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || home + "/.local/state") + "/omarchy/omafile"
   readonly property string statePath: stateDir + "/state.json"

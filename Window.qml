@@ -13,7 +13,7 @@ Item {
   property var manifest: null
   property var service: null
 
-  readonly property string pluginId: "xyzlab.omafile"
+  readonly property string pluginId: "athesias.omafile"
   readonly property string popupMode: service ? service.windowMode : "window"
   readonly property bool asPopup: popupMode === "popup"
 

@@ -14,6 +14,9 @@ Item {
   readonly property string home: Quickshell.env("HOME") || ""
 
   property bool showDrives: true
+  // Match Nautilus: Adwaita Sans 11pt x 1.1818 text scale ~ 17px.
+  readonly property int labelSize: 17
+  readonly property int rowHeight: labelSize + Style.space(12)
   property bool keyboardActive: false
   property int cursorIndex: 0
 
@@ -253,7 +256,7 @@ Item {
                   && sidebar.rowKey(modelData) === sidebar.cursorKey
                 width: column.width - Style.space(8)
                 x: Style.space(4)
-                height: Style.space(24)
+                height: sidebar.rowHeight
                 radius: Style.cornerRadius
                 color: sidebar.currentPath === modelData.path
                   ? Util.alpha(Color.accent, 0.18)
@@ -308,7 +311,7 @@ Item {
                     color: sidebar.currentPath === modelData.path
                       ? Color.accent : Util.alpha(Color.foreground, 0.6)
                     font.family: Style.font.family
-                    font.pixelSize: Style.font.iconSmall
+                    font.pixelSize: sidebar.labelSize
                   }
 
                   Text {
@@ -322,7 +325,7 @@ Item {
                     color: sidebar.currentPath === modelData.path
                       ? Color.foreground : Util.alpha(Color.foreground, 0.75)
                     font.family: Style.font.family
-                    font.pixelSize: Style.font.bodySmall
+                    font.pixelSize: sidebar.labelSize
                     elide: Text.ElideMiddle
                   }
 
@@ -332,7 +335,7 @@ Item {
                     text: Icons.actionGlyph("close")
                     color: unpinHover.hovered ? Color.urgent : Util.alpha(Color.foreground, 0.35)
                     font.family: Style.font.family
-                    font.pixelSize: Style.font.iconSmall
+                    font.pixelSize: sidebar.labelSize
 
                     HoverHandler { id: unpinHover }
 
@@ -351,7 +354,7 @@ Item {
                     text: Icons.actionGlyph("hidden")
                     color: hideHover.hovered ? Color.urgent : Util.alpha(Color.foreground, 0.35)
                     font.family: Style.font.family
-                    font.pixelSize: Style.font.iconSmall
+                    font.pixelSize: sidebar.labelSize
 
                     HoverHandler { id: hideHover }
 
@@ -367,7 +370,7 @@ Item {
                     text: Icons.actionGlyph("eject")
                     color: ejectHover.hovered ? Color.accent : Util.alpha(Color.foreground, 0.45)
                     font.family: Style.font.family
-                    font.pixelSize: Style.font.iconSmall
+                    font.pixelSize: sidebar.labelSize
 
                     HoverHandler { id: ejectHover }
 
@@ -394,7 +397,7 @@ Item {
             && sidebar.cursorKey === sidebar.rowKey({ key: "trash", path: sidebar.trashPath() })
           width: column.width - Style.space(8)
           x: Style.space(4)
-          height: Style.space(24)
+          height: sidebar.rowHeight
           radius: Style.cornerRadius
           color: trashHover.hovered ? Util.alpha(Color.foreground, 0.08) : "transparent"
           border.width: cursored ? Math.max(1, Style.space(1)) : 0
@@ -418,7 +421,7 @@ Item {
               text: Icons.placeGlyph("trash")
               color: Util.alpha(Color.foreground, 0.6)
               font.family: Style.font.family
-              font.pixelSize: Style.font.iconSmall
+              font.pixelSize: sidebar.labelSize
             }
 
             Text {
@@ -426,7 +429,7 @@ Item {
               text: "Trash"
               color: Util.alpha(Color.foreground, 0.75)
               font.family: Style.font.family
-              font.pixelSize: Style.font.bodySmall
+              font.pixelSize: sidebar.labelSize
             }
           }
 

@@ -9,7 +9,7 @@ import "components"
 
 Panel {
   id: root
-  moduleName: "xyzlab.omafile"
+  moduleName: "athesias.omafile"
   ipcTarget: ""
   manageIpc: false
 

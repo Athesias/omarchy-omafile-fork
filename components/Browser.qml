@@ -11,7 +11,7 @@ Item {
   property var shell: null
   property var manifest: null
   property var service: null
-  readonly property string pluginId: "xyzlab.omafile"
+  readonly property string pluginId: "athesias.omafile"
   readonly property string home: Quickshell.env("HOME") || ""
   signal openRequested()
   signal closeRequested()
@@ -1336,7 +1336,7 @@ Item {
 
         SidebarPlaces {
           id: sidebar
-          width: root.sidebarVisible ? Style.space(190) : 0
+          width: root.sidebarVisible ? Style.space(230) : 0
           height: parent.height
           visible: root.sidebarVisible
           service: root.service

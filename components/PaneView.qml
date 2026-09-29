@@ -20,7 +20,9 @@ Item {
   property real viewScale: 1
   property var patterns: []
 
-  readonly property int rowHeight: Math.round(Style.space(22) * viewScale)
+  // Match Nautilus: Adwaita Sans 11pt x 1.1818 text scale ~ 17px.
+  readonly property int nameSize: 17
+  readonly property int rowHeight: Math.round((nameSize + Style.space(12)) * viewScale)
   readonly property int listIconSize: Math.round(Style.space(18) * viewScale)
   readonly property int gridIconSize: Math.round(Style.space(view === "gallery" ? 150 : 48) * viewScale)
   readonly property bool compactView: view === "compact"
@@ -803,7 +805,7 @@ Item {
                   text: row.entry.name
                   color: row.entry.isHidden ? Util.alpha(pane.fg, 0.55) : pane.fg
                   font.family: Style.font.family
-                  font.pixelSize: pane.scaled(Style.font.body)
+                  font.pixelSize: pane.scaled(pane.nameSize)
                   font.italic: row.entry.isLink
                   elide: Text.ElideMiddle
                 }
@@ -857,9 +859,9 @@ Item {
         model: pane.rows
         visible: pane.view !== "list"
         cellWidth: pane.compactView ? Math.round(Style.space(230) * pane.viewScale)
-          : Math.round(Style.space(pane.view === "gallery" ? 190 : 110) * pane.viewScale)
+          : Math.round(Style.space(pane.view === "gallery" ? 190 : 140) * pane.viewScale)
         cellHeight: pane.compactView ? pane.rowHeight + Style.space(2)
-          : Math.round(Style.space(pane.view === "gallery" ? 196 : 96) * pane.viewScale)
+          : Math.round(Style.space(pane.view === "gallery" ? 206 : 116) * pane.viewScale)
         cacheBuffer: 600
         boundsBehavior: Flickable.StopAtBounds
 
@@ -943,7 +945,7 @@ Item {
               text: cell.entry.name
               color: cell.entry.isHidden ? Util.alpha(pane.fg, 0.55) : pane.fg
               font.family: Style.font.family
-              font.pixelSize: pane.scaled(Style.font.bodySmall)
+              font.pixelSize: pane.scaled(pane.nameSize)
               font.italic: cell.entry.isLink
               elide: Text.ElideMiddle
             }
@@ -993,7 +995,7 @@ Item {
               text: pane.view === "gallery" ? cell.entry.name : pane.gridLabel(cell.entry.name)
               color: pane.fg
               font.family: Style.font.family
-              font.pixelSize: pane.scaled(Style.font.caption)
+              font.pixelSize: pane.scaled(pane.nameSize)
               maximumLineCount: pane.view === "gallery" ? 1 : 2
               wrapMode: pane.view === "gallery" ? Text.NoWrap : Text.WrapAnywhere
               elide: pane.view === "gallery" ? Text.ElideMiddle : Text.ElideNone

@@ -7,9 +7,9 @@ import "Icons.js" as Icons
 
 BarWidget {
   id: root
-  moduleName: "xyzlab.omafile"
+  moduleName: "athesias.omafile"
 
-  readonly property var service: bar && bar.shell ? bar.shell.serviceFor("xyzlab.omafile") : null
+  readonly property var service: bar && bar.shell ? bar.shell.serviceFor("athesias.omafile") : null
   readonly property string mode: String(setting("mode", "files") || "files").toLowerCase()
   readonly property bool trashMode: mode === "trash"
   readonly property string customGlyph: String(setting("glyph", "") || "").trim()
