@@ -103,6 +103,35 @@ Item {
   readonly property bool canRunTyped: dialogMode === "openwith"
     && Model.tokenizeCommand(appFilter).length > 0
   property bool findMode: false
+  property bool searchContents: false
+  readonly property var listColumns: {
+    var v = service ? service.settingNow("listColumns", null) : null
+    return v && typeof v === "object" ? v : { size: true, type: true, modified: true }
+  }
+
+  function openColumnsMenu(source, x, y) {
+    var check = Icons.actionGlyph("check")
+    var cols = listColumns
+    menuKind = "columns"
+    menuEntry = null
+    menuActions = [
+      { key: "col:size", label: "Size", glyph: cols.size !== false ? check : "" },
+      { key: "col:type", label: "Type", glyph: cols.type !== false ? check : "" },
+      { key: "col:modified", label: "Modified", glyph: cols.modified !== false ? check : "" }
+    ]
+    menuCursor = -1
+    var pt = source.mapToItem(keyCatcher, x, y)
+    menuX = pt.x
+    menuY = pt.y
+    menuOpen = true
+  }
+
+  function toggleColumn(key) {
+    var next = { size: listColumns.size !== false, type: listColumns.type !== false,
+      modified: listColumns.modified !== false }
+    next[key] = !next[key]
+    applySettingNow("listColumns", next)
+  }
   property bool connectAnonymous: false
   property string connectStatus: ""
   property bool connectFailed: false
@@ -719,6 +748,13 @@ Item {
     })
   }
 
+  function allStarred(entry) {
+    if (!service) return false
+    var targets = actionTargets(entry)
+    for (var i = 0; i < targets.length; i++) if (!service.isStarred(targets[i])) return false
+    return targets.length > 0
+  }
+
   function openFileLocation(entry) {
     if (!entry) return
     var p = activePane()
@@ -894,6 +930,7 @@ Item {
       if (Model.isBackgroundImage(entry) && p.selectedCount <= 1)
         items.push({ key: "background", label: "Set as Omarchy background", glyph: Icons.glyphFor(entry) })
       items.push({ key: "localsend", label: "Send via LocalSend", glyph: Icons.actionGlyph("forward") })
+      items.push({ key: "star", label: allStarred(entry) ? "Unstar" : "Star", glyph: Icons.placeGlyph("starred") })
       items.push({ key: "compress", label: "Compress", glyph: Icons.glyphForCategory("archive") })
       if (Model.isArchive(entry))
         items.push({ key: "extract", label: "Extract here", glyph: Icons.glyphForCategory("archive") })
@@ -1003,7 +1040,12 @@ Item {
     else if (key.indexOf("view:") === 0) setView(key.substring(5))
     else if (key === "preview") showPreview(entry)
     else if (key === "transcode") service.transcode(transcodeTargets(entry))
+    else if (key.indexOf("col:") === 0) toggleColumn(key.substring(4))
     else if (key === "location") openFileLocation(entry)
+    else if (key === "star") {
+      var starredNow = service.toggleStarred(actionTargets(entry))
+      statusText = starredNow ? "Starred" : "Unstarred"
+    }
     else if (key === "restore") restoreFromTrash(entry)
     else if (key === "emptytrash") askEmptyTrash()
     else if (key === "compress") askCompress(entry)
@@ -1804,6 +1846,12 @@ Item {
           path: root.activePane() ? root.activePane().path : ""
           home: root.home
           findMode: root.findMode
+          searchContents: root.searchContents
+
+          onContentsToggled: {
+            root.searchContents = !root.searchContents
+            if (pathBar.filterText.length > 0) root.activePane().startSearch(pathBar.filterText)
+          }
 
           onNavigate: function (target) {
             root.activePane().navigate(target)
@@ -1896,6 +1944,8 @@ Item {
               id: paneA
               width: parent.width
               nameSize: root.nameFontSize
+              searchContents: root.searchContents
+              columns: root.listColumns
               detailSize: root.detailsFontSize
               patterns: root.picking ? root.pickPatterns() : []
               height: parent.height - (tabStripA.visible ? tabStripA.height : 0)
@@ -1911,6 +1961,7 @@ Item {
               onNavigated: function (p) { root.rememberSession() }
               onZoomRequested: function (delta) { root.nudgeViewScale(delta) }
               onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
+              onColumnsMenuRequested: function (x, y) { root.openColumnsMenu(paneA, x, y) }
               onContextRequested: function (entry, x, y) {
                 root.menuKind = ""
                 root.menuEntry = entry
@@ -1946,6 +1997,8 @@ Item {
               id: paneB
               width: parent.width
               nameSize: root.nameFontSize
+              searchContents: root.searchContents
+              columns: root.listColumns
               detailSize: root.detailsFontSize
               patterns: root.picking ? root.pickPatterns() : []
               height: parent.height - (tabStripB.visible ? tabStripB.height : 0)
@@ -1961,6 +2014,7 @@ Item {
               onNavigated: function (p) { root.rememberSession() }
               onZoomRequested: function (delta) { root.nudgeViewScale(delta) }
               onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
+              onColumnsMenuRequested: function (x, y) { root.openColumnsMenu(paneB, x, y) }
               onContextRequested: function (entry, x, y) {
                 root.menuKind = ""
                 root.menuEntry = entry

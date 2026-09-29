@@ -13,10 +13,12 @@ Item {
   property bool editing: false
   property bool filterOpen: false
   property int fontSize: Style.font.bodySmall
+  property bool searchContents: false
+  signal contentsToggled()
   readonly property int controlHeight: Math.max(Style.space(20), fontSize + Style.space(7))
-  readonly property bool virtualView: path === "recent:"
+  readonly property bool virtualView: path === "recent:" || path === "starred:"
   readonly property var crumbs: virtualView
-    ? [{ label: "Recent", path: "recent:" }]
+    ? [{ label: path === "starred:" ? "Starred" : "Recent", path: path }]
     : Model.breadcrumbs(Model.collapseTilde(path, home))
   readonly property alias filterText: filterInput.text
   readonly property bool filterFocused: filterInput.activeFocus
@@ -268,14 +270,15 @@ Item {
 
         Item {
           anchors.verticalCenter: parent.verticalCenter
-          width: parent.width - Style.space(56)
+          width: parent.width - Style.space(56) - (bar.findMode ? contentsToggle.width + Style.space(8) : 0)
           height: bar.controlHeight
 
           Text {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             visible: filterInput.text.length === 0
-            text: bar.findMode ? "Search this folder and everything in it" : "Filter this folder"
+            text: !bar.findMode ? "Filter this folder"
+              : (bar.searchContents ? "Search inside files here and below" : "Search this folder and everything in it")
             color: Util.alpha(Color.foreground, 0.35)
             font.family: Style.font.family
             font.pixelSize: bar.fontSize
@@ -310,6 +313,40 @@ Item {
               }
               bar.closeFilter()
               bar.dismissed()
+            }
+          }
+        }
+
+        // Names or contents, like the search options in Nautilus
+        Rectangle {
+          id: contentsToggle
+          anchors.verticalCenter: parent.verticalCenter
+          visible: bar.findMode
+          width: contentsLabel.implicitWidth + Style.space(14)
+          height: bar.controlHeight
+          radius: Style.cornerRadius
+          color: bar.searchContents ? Util.alpha(Color.urgent, 0.25)
+            : (contentsHover.hovered ? Util.alpha(Color.foreground, 0.1) : "transparent")
+          border.width: Math.max(1, Style.space(1))
+          border.color: bar.searchContents ? Util.alpha(Color.urgent, 0.7) : Util.alpha(Color.foreground, 0.25)
+
+          Text {
+            id: contentsLabel
+            anchors.centerIn: parent
+            text: "Contents"
+            color: bar.searchContents ? Color.urgent : Util.alpha(Color.foreground, 0.7)
+            font.family: Style.font.family
+            font.pixelSize: Math.max(Style.font.caption, bar.fontSize - 2)
+          }
+
+          HoverHandler { id: contentsHover }
+
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+              bar.contentsToggled()
+              filterInput.forceActiveFocus()
             }
           }
         }

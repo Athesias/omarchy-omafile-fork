@@ -49,11 +49,12 @@ Item {
   property int historyIndex: -1
 
   property bool searching: false
+  property bool searchContents: false
   property string searchQuery: ""
   property bool searchTruncated: false
   property int _searchId: 0
   property int _generation: 0
-  readonly property bool virtualView: pane.path === "recent:"
+  readonly property bool virtualView: pane.path === "recent:" || pane.path === "starred:"
   property int _listId: 0
   property int _watchId: 0
   property string _watchPath: ""
@@ -71,6 +72,18 @@ Item {
   signal statusChanged()
   signal zoomRequested(real delta)
   signal dropRequested(var urls, string dest)
+  signal columnsMenuRequested(real x, real y)
+
+  // List view columns; Name takes whatever the others leave
+  property var columns: ({ size: true, type: true, modified: true })
+  readonly property var baseWeights: ({ size: 0.14, type: 0.16, modified: 0.18 })
+
+  function colWeight(key) {
+    if (key !== "name") return pane.columns[key] === false ? 0 : pane.baseWeights[key]
+    var used = 0
+    for (var k in pane.baseWeights) used += colWeight(k)
+    return 1 - used
+  }
 
   // Drag and drop: what a drag started here carries
   property string dragUriList: ""
@@ -113,7 +126,7 @@ Item {
     if (index < 0) return -1
     var v = activeView()
     var pt = bandArea.mapToItem(v, x, y)
-    if (pane.view === "list") return pt.x < header.width * 0.52 ? index : -1
+    if (pane.view === "list") return pt.x < header.width * colWeight("name") ? index : -1
     if (pane.compactView) return index
     var cw = gridView.cellWidth
     var cols = Math.max(1, Math.floor(gridView.width / cw))
@@ -202,7 +215,7 @@ Item {
 
   function navigate(target, recordHistory) {
     var raw = String(target || "")
-    var next = raw === "recent:"
+    var next = raw === "recent:" || raw === "starred:"
       ? raw
       : Model.normalizePath(Model.expandTilde(raw, Quickshell.env("HOME") || ""))
     if (!next) return
@@ -292,7 +305,7 @@ Item {
 
     var searchGeneration = ++pane._generation
 
-    _searchId = service.searchFiles(pane.path, trimmed, "substring", pane.showHidden,
+    _searchId = service.searchFiles(pane.path, trimmed, pane.searchContents ? "content" : "substring", pane.showHidden,
       function (hit) {
         if (searchGeneration !== pane._generation) return
         pane._pendingChunks.push(pane.hitToRow(hit))
@@ -323,6 +336,52 @@ Item {
       pane.searching = false
       reload()
     }
+  }
+
+  // Starred items, read fresh each time; missing files drop out of the view
+  function loadStarred() {
+    if (!service) return
+    var generation = ++pane._generation
+    _pendingChunks = []
+    entries = []
+    rows = []
+    selection = ({})
+    cursorIndex = -1
+    anchorIndex = -1
+    errorMessage = ""
+    total = 0
+    rebuildTimer.stop()
+    if (_watchId) {
+      service.unwatch(_watchId, _watchPath)
+      _watchId = 0
+      _watchPath = ""
+    }
+    var list = service.starred
+    if (list.length === 0) {
+      loading = false
+      statusChanged()
+      return
+    }
+    loading = true
+    service.statPaths(list, function (items) {
+      if (generation !== pane._generation) return
+      var out = []
+      for (var i = 0; i < (items || []).length; i++) {
+        var it = items[i]
+        if (!it || !it.kind) continue
+        out.push([String(it.name), String(it.kind), Number(it.size) || 0, Number(it.mtime) || 0,
+          Number(it.mode) || 0, it.linkTarget || null, String(it.path)])
+      }
+      pane.entries = out
+      pane.loading = false
+      pane.total = out.length
+      pane.rebuild()
+    })
+  }
+
+  Connections {
+    target: pane.service
+    function onStarredChanged() { if (pane.path === "starred:") pane.loadStarred() }
   }
 
   function loadRecent() {
@@ -372,7 +431,8 @@ Item {
   function reload() {
     if (!service || !pane.path) return
     if (pane.virtualView) {
-      loadRecent()
+      if (pane.path === "starred:") loadStarred()
+      else loadRecent()
       return
     }
     if (pane.searching) return
@@ -797,7 +857,8 @@ Item {
           delegate: Item {
             required property var modelData
             objectName: "header-" + modelData.key
-            width: header.width * modelData.weight
+            width: header.width * pane.colWeight(modelData.key)
+            visible: width > 0
             height: header.height
 
             Text {
@@ -817,7 +878,13 @@ Item {
 
             MouseArea {
               anchors.fill: parent
-              onClicked: pane.setSort(modelData.key)
+              acceptedButtons: Qt.LeftButton | Qt.RightButton
+              onClicked: function (mouse) {
+                if (mouse.button === Qt.RightButton) {
+                  var pt = mapToItem(pane, mouse.x, mouse.y)
+                  pane.columnsMenuRequested(pt.x, pt.y)
+                } else pane.setSort(modelData.key)
+              }
             }
           }
         }
@@ -911,7 +978,7 @@ Item {
             spacing: 0
 
             Item {
-              width: header.width * 0.52
+              width: header.width * pane.colWeight("name")
               height: parent.height
 
               Row {
@@ -966,7 +1033,8 @@ Item {
             }
 
             Text {
-              width: header.width * 0.14
+              width: header.width * pane.colWeight("size")
+              visible: width > 0
               height: parent.height
               verticalAlignment: Text.AlignVCenter
               horizontalAlignment: Text.AlignRight
@@ -980,7 +1048,8 @@ Item {
             }
 
             Text {
-              width: header.width * 0.16
+              width: header.width * pane.colWeight("type")
+              visible: width > 0
               height: parent.height
               verticalAlignment: Text.AlignVCenter
               leftPadding: Style.space(10)
@@ -992,7 +1061,8 @@ Item {
             }
 
             Text {
-              width: header.width * 0.18
+              width: header.width * pane.colWeight("modified")
+              visible: width > 0
               height: parent.height
               verticalAlignment: Text.AlignVCenter
               leftPadding: Style.space(10)
@@ -1197,7 +1267,7 @@ Item {
       anchors.centerIn: parent
       visible: !pane.loading && pane.errorMessage === "" && pane.rows.length === 0
       text: pane.searching ? "No matches"
-        : (pane.virtualView ? "Nothing opened recently"
+        : (pane.virtualView ? (pane.path === "starred:" ? "Nothing starred yet. Right click a file and choose Star." : "Nothing opened recently")
           : (pane.filter ? "Nothing matches" : "Empty folder"))
       color: Util.alpha(pane.fg, 0.45)
       font.family: Style.font.family

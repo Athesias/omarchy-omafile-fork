@@ -1154,6 +1154,51 @@ def op_symlink(req):
     except OSError as e:
         send_error(req_id, errno_code(e), e.strerror or str(e), path)
 
+def search_contents(req_id, root, query, hidden, max_results, cancel_event):
+    """Files whose text contains the query, found with ripgrep (binary files skipped)."""
+    if not query:
+        send_done(req_id, truncated=False, scanned=0)
+        return
+    try:
+        argv = [trusted_program("rg"), "--files-with-matches", "--fixed-strings", "--ignore-case",
+                "--no-messages", "--no-ignore-vcs", "--max-filesize", "50M"]
+    except FileNotFoundError:
+        send_error(req_id, "EUNSUPPORTED", "ripgrep (rg) is needed to search inside files")
+        return
+    if hidden:
+        argv.append("--hidden")
+    argv += ["--", query, root]
+    proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, env=trusted_env(), start_new_session=True)
+    matched = 0
+    try:
+        for raw in proc.stdout:
+            if cancel_event.is_set():
+                kill_process_group(proc)
+                send_error(req_id, "ECANCELED", "cancelled")
+                return
+            path_b = raw.rstrip(b"\n")
+            if not path_b:
+                continue
+            try:
+                lst = os.lstat(path_b)
+                kind, size, _ = classify(path_b, lst)
+                mtime = int(lst.st_mtime)
+            except OSError:
+                continue
+            emit({"id": req_id, "t": "hit", "path": to_str(path_b), "name": to_str(os.path.basename(path_b)),
+                  "dir": to_str(os.path.dirname(path_b)), "kind": kind, "size": size, "mtime": mtime})
+            matched += 1
+            if matched >= max_results:
+                kill_process_group(proc)
+                send_done(req_id, truncated=True, scanned=matched)
+                return
+    finally:
+        if proc.poll() is None:
+            proc.wait(timeout=5)
+    send_done(req_id, truncated=False, scanned=matched)
+
+
 def op_search(req, cancel_event):
     req_id = req["id"]
     root = req.get("root")
@@ -1172,6 +1217,9 @@ def op_search(req, cancel_event):
         root_dev = os.stat(root_bytes).st_dev
     except OSError as e:
         send_error(req_id, errno_code(e), e.strerror or str(e), root)
+        return
+    if mode == "content":
+        search_contents(req_id, root, query, hidden, max_results, cancel_event)
         return
     pattern = None
     if mode == "regex":

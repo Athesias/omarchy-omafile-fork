@@ -133,6 +133,7 @@ Item {
     var places = []
     places.push({ key: "home", label: "Home", path: home })
     places.push({ key: "recent", label: "Recent", path: "recent:" })
+    places.push({ key: "starred", label: "Starred", path: "starred:" })
     var order = ["desktop", "documents", "downloads", "music", "pictures", "videos"]
     var labels = {
       desktop: "Desktop", documents: "Documents", downloads: "Downloads",

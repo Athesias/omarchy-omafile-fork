@@ -59,6 +59,7 @@ var placeGlyphs = {
   network: '',
   pinned: '',
   recent: '',
+  starred: '',
   search: '',
   networkdrive: ''
 };

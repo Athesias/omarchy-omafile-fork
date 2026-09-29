@@ -34,6 +34,7 @@ Item {
   property real trashBytes: 0
   property var recent: []
   property var pinned: []
+  property var starred: []
   property var hiddenDrives: []
   property var servers: []
   property var session: null
@@ -854,6 +855,24 @@ Item {
     })
   }
 
+  function isStarred(path) {
+    return starred.indexOf(String(path)) >= 0
+  }
+
+  // Star every path, or unstar them all when they are all starred already
+  function toggleStarred(paths) {
+    var all = true
+    for (var i = 0; i < paths.length; i++) if (!isStarred(paths[i])) all = false
+    var next = []
+    for (var s = 0; s < starred.length; s++)
+      if (!all || paths.indexOf(starred[s]) < 0) next.push(starred[s])
+    if (!all)
+      for (var p = 0; p < paths.length; p++) if (next.indexOf(String(paths[p])) < 0) next.push(String(paths[p]))
+    starred = next
+    persist()
+    return !all
+  }
+
   function sendViaLocalSend(paths) {
     if (!paths || paths.length === 0) return
     Quickshell.execDetached(["localsend", "--headless", "send"].concat(paths))
@@ -1021,6 +1040,7 @@ Item {
       version: 1,
       recent: recent,
       pinned: pinned,
+      starred: starred,
       settings: savedSettings,
       servers: servers,
       previousFileManager: previousFileManager,
@@ -1039,6 +1059,7 @@ Item {
     if (!parsed || typeof parsed !== "object") return
     if (parsed.recent) recent = parsed.recent
     if (parsed.pinned) pinned = parsed.pinned
+    if (parsed.starred) starred = parsed.starred
     if (parsed.settings && typeof parsed.settings === "object") savedSettings = parsed.settings
     // Drive hiding was removed; every drive shows in the sidebar
     if (parsed.servers) servers = parsed.servers
