@@ -46,6 +46,26 @@ function pad2(n) {
 var transcodeExtSet = toSet(['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'avif',
   'mp4', 'mov', 'm4v', 'mkv', 'webm', 'avi']);
 
+var backgroundExtSet = toSet(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']);
+
+function isBackgroundImage(entry) {
+  if (!entry || entry.isDir || entry.isBroken) return false;
+  return !!backgroundExtSet[String(entry.ext || '').toLowerCase()];
+}
+
+// Shell-style wildcards (* and ?) for Select Items Matching
+function globToRegExp(pattern) {
+  var out = '';
+  var p = String(pattern || '');
+  for (var i = 0; i < p.length; i++) {
+    var c = p.charAt(i);
+    if (c === '*') out += '.*';
+    else if (c === '?') out += '.';
+    else out += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp('^' + out + '$', 'i');
+}
+
 function isTranscodable(entry) {
   if (!entry || entry.isDir || entry.isBroken) return false;
   return !!transcodeExtSet[String(entry.ext || '').toLowerCase()];
@@ -69,6 +89,7 @@ function decodeEntry(arr, dirPath) {
   var mtime = arr[3];
   var mode = arr[4];
   var linkTarget = arr.length > 5 && arr[5] !== undefined ? arr[5] : null;
+  var childCount = arr.length > 7 && typeof arr[7] === 'number' ? arr[7] : null;
   var isDir = kind === 'd' || kind === 'L';
   var isLink = kind === 'L' || kind === 'l' || kind === 'b';
   var isBroken = kind === 'b';
@@ -83,6 +104,7 @@ function decodeEntry(arr, dirPath) {
     mtime: mtime,
     mode: mode,
     linkTarget: linkTarget,
+    childCount: childCount,
     path: (arr.length > 6 && typeof arr[6] === 'string' && arr[6].length > 0) ? arr[6] : joinPath(dirPath, name),
     isDir: isDir,
     isLink: isLink,

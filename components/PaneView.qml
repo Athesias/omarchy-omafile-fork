@@ -69,6 +69,7 @@ Item {
   signal openRequested(var entry)
   signal contextRequested(var entry, real sceneX, real sceneY)
   signal statusChanged()
+  signal zoomRequested(real delta)
 
   function countSelection() {
     var n = 0
@@ -633,6 +634,15 @@ Item {
       onReleased: banding = false
       onCanceled: banding = false
 
+      // Ctrl + wheel zooms, like Nautilus; plain wheel scrolls the list below
+      onWheel: function (wheel) {
+        if ((wheel.modifiers & Qt.ControlModifier) === 0) {
+          wheel.accepted = false
+          return
+        }
+        if (wheel.angleDelta.y !== 0) pane.zoomRequested(wheel.angleDelta.y > 0 ? 0.1 : -0.1)
+      }
+
       Rectangle {
         visible: bandArea.banding
         x: Math.min(bandArea.originX, bandArea.currentX)
@@ -821,7 +831,9 @@ Item {
               verticalAlignment: Text.AlignVCenter
               horizontalAlignment: Text.AlignRight
               rightPadding: Style.space(10)
-              text: row.entry.isDir ? "" : Model.formatSize(row.entry.size)
+              text: row.entry.isDir
+                ? (row.entry.childCount === null ? "" : Model.formatCount(row.entry.childCount, "item", "items"))
+                : Model.formatSize(row.entry.size)
               color: Util.alpha(pane.fg, 0.7)
               font.family: Style.font.family
               font.pixelSize: pane.scaled(pane.detailSize)

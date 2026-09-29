@@ -70,6 +70,35 @@ Item {
   property var menuDrive: null
   property string menuKind: ""
   property string statusText: ""
+  property string freeSpaceText: ""
+  readonly property string activePath: activePane() ? activePane().path : ""
+  onActivePathChanged: refreshFreeSpace()
+
+  function refreshFreeSpace() {
+    var target = activePath
+    if (!service || !target || target.indexOf(":") >= 0) { freeSpaceText = ""; return }
+    service.freeSpace(target, function (m) {
+      if (target !== root.activePath) return
+      root.freeSpaceText = Model.formatSize(Number(m.free) || 0) + " free of "
+        + Model.formatSize(Number(m.total) || 0)
+    })
+  }
+
+  Timer {
+    interval: 20000
+    repeat: true
+    running: root.visible
+    onTriggered: root.refreshFreeSpace()
+  }
+
+  function selectionBytes(p) {
+    var list = p.selectedEntries
+    var sum = 0
+    var files = 0
+    for (var i = 0; i < list.length; i++)
+      if (!list[i].isDir) { sum += Number(list[i].size) || 0; files++ }
+    return files > 0 ? " (" + Model.formatSize(sum) + ")" : ""
+  }
   property string appFilter: ""
   readonly property bool canRunTyped: dialogMode === "openwith"
     && Model.tokenizeCommand(appFilter).length > 0
@@ -383,7 +412,8 @@ Item {
     dialogError = ""
     appFilter = ""
     Qt.callLater(function () {
-      if (dialogMode === "rename" || dialogMode === "newfolder" || dialogMode === "newfile" || dialogMode === "path") {
+      if (dialogMode === "rename" || dialogMode === "newfolder" || dialogMode === "newfile" || dialogMode === "path"
+          || dialogMode === "selectmatch") {
         dialogField.text = root.dialogValue
         dialogField.forceActiveFocus()
         if (dialogMode === "rename") {
@@ -440,6 +470,11 @@ Item {
     if (dialogMode === "path") {
       closeDialog()
       p.navigate(value)
+      return
+    }
+    if (dialogMode === "selectmatch") {
+      closeDialog()
+      if (value) selectMatching(value)
       return
     }
     if (!value) {
@@ -574,6 +609,77 @@ Item {
     for (var i = 0; i < list.length; i++) if (String(list[i]) === String(path)) return true
     return false
   }
+  // The selection when the clicked item is part of it, otherwise just that item
+  function actionTargets(entry) {
+    if (!entry) return []
+    var p = activePane()
+    var picked = p.selectedPaths()
+    return picked.indexOf(entry.path) >= 0 ? picked : [entry.path]
+  }
+
+  function openFileLocation(entry) {
+    if (!entry) return
+    var p = activePane()
+    var name = Model.basename(entry.path)
+    p.navigate(Model.parentPath(entry.path))
+    // Select the file once the folder has been read
+    var tries = 0
+    var poll = function () {
+      if (p.loading && tries++ < 40) { Qt.callLater(poll); return }
+      p.focusName(name)
+    }
+    Qt.callLater(poll)
+  }
+
+  function setAsBackground(entry) {
+    service.setBackground(entry.path, function () {
+      root.statusText = "Background set"
+    }, function (m) {
+      root.driveNotice("Could not set the background", m)
+    })
+  }
+
+  function uniqueName(base, taken) {
+    if (!taken[base]) return base
+    for (var i = 2; i < 1000; i++) {
+      var candidate = base + " " + i
+      if (!taken[candidate]) return candidate
+    }
+    return base + " " + Date.now()
+  }
+
+  function makeLinks(entry) {
+    var p = activePane()
+    var taken = {}
+    for (var i = 0; i < p.rows.length; i++) taken[p.rows[i][0]] = true
+    var targets = actionTargets(entry)
+    var made = 0
+    for (var t = 0; t < targets.length; t++) {
+      var dir = p.virtualView || p.searching ? Model.parentPath(targets[t]) : p.path
+      var name = uniqueName("Link to " + Model.basename(targets[t]), taken)
+      taken[name] = true
+      service.makeLink(targets[t], Model.joinPath(dir, name), function () {
+        made++
+        root.statusText = Model.formatCount(made, "link made", "links made")
+        p.refresh()
+      }, function (m) {
+        root.statusText = "Could not make link: " + String(m.message || "")
+      })
+    }
+  }
+
+  function selectMatching(pattern) {
+    var p = activePane()
+    var re = Model.globToRegExp(pattern)
+    var next = {}
+    var n = 0
+    for (var i = 0; i < p.rows.length; i++) {
+      if (re.test(String(p.rows[i][0]))) { next[p.rows[i][0]] = true; n++ }
+    }
+    p.selection = next
+    statusText = n === 0 ? "Nothing matches " + pattern : Model.formatCount(n, "item matches", "items match")
+  }
+
   // Pictures and videos in the selection, or just the clicked file
   function transcodeTargets(entry) {
     if (!Model.isTranscodable(entry)) return []
@@ -592,10 +698,15 @@ Item {
       items.push({ key: "open", label: entry.isDir ? "Open" : "Open", glyph: Icons.actionGlyph("open") })
       items.push({ key: "openwith", label: "Open with", glyph: Icons.actionGlyph("open") })
       if (!entry.isDir) items.push({ key: "preview", label: "Preview", glyph: Icons.actionGlyph("search") })
+      if (Model.parentPath(entry.path) !== p.path)
+        items.push({ key: "location", label: "Open file location", glyph: Icons.actionGlyph("open") })
       var media = transcodeTargets(entry)
       if (media.length > 0)
         items.push({ key: "transcode", glyph: Icons.glyphFor(entry),
           label: media.length === 1 ? "Transcode" : "Transcode " + media.length + " items" })
+      if (Model.isBackgroundImage(entry) && p.selectedCount <= 1)
+        items.push({ key: "background", label: "Set as Omarchy background", glyph: Icons.glyphFor(entry) })
+      items.push({ key: "localsend", label: "Send via LocalSend", glyph: Icons.actionGlyph("forward") })
       if (entry.isDir) {
         items.push({ key: "opentab", label: "Open in new tab", glyph: Icons.actionGlyph("add") })
         items.push({
@@ -609,6 +720,7 @@ Item {
       items.push({ key: "sep1", label: "", glyph: "" })
       items.push({ key: "copy", label: "Copy", glyph: Icons.actionGlyph("copy") })
       items.push({ key: "cut", label: "Cut", glyph: Icons.actionGlyph("cut") })
+      items.push({ key: "makelink", label: "Make link", glyph: Icons.glyphForCategory("link") })
     }
     items.push({ key: "paste", label: "Paste", glyph: Icons.actionGlyph("paste"),
       disabled: !service || !service.clipboard || service.clipboard.paths.length === 0 })
@@ -632,6 +744,7 @@ Item {
       })
       items.push({ key: "terminal", label: "Open in terminal", glyph: Icons.actionGlyph("terminal") })
       items.push({ key: "claude", label: "Open Claude Code here", glyph: Icons.actionGlyph("terminal") })
+      items.push({ key: "selectmatch", label: "Select items matching", glyph: Icons.actionGlyph("search") })
       items.push({ key: "refresh", label: "Refresh", glyph: Icons.actionGlyph("refresh") })
     }
     return items
@@ -701,6 +814,11 @@ Item {
     else if (key.indexOf("view:") === 0) setView(key.substring(5))
     else if (key === "preview") showPreview(entry)
     else if (key === "transcode") service.transcode(transcodeTargets(entry))
+    else if (key === "location") openFileLocation(entry)
+    else if (key === "background") setAsBackground(entry)
+    else if (key === "localsend") service.sendViaLocalSend(actionTargets(entry))
+    else if (key === "makelink") makeLinks(entry)
+    else if (key === "selectmatch") showDialog("selectmatch", "Select items matching", "*", null)
     else if (key === "open") p.openEntry(entry)
     else if (key === "openwith") showDialog("openwith", "Open with", "", entry)
     else if (key === "opentab") newTab(activeSide, entry.path)
@@ -1182,6 +1300,7 @@ Item {
     if (ctrl && event.key === Qt.Key_Minus) { nudgeViewScale(-0.1); return true }
     if (ctrl && event.key === Qt.Key_0) { setViewScale(1); return true }
     if (ctrl && event.key === Qt.Key_A) { p.selectAll(); return true }
+    if (ctrl && event.key === Qt.Key_S) { showDialog("selectmatch", "Select items matching", "*", null); return true }
     if (ctrl && event.key === Qt.Key_C) { doCopy(); return true }
     if (ctrl && event.key === Qt.Key_X) { doCut(); return true }
     if (ctrl && event.key === Qt.Key_V) { doPaste(); return true }
@@ -1516,6 +1635,7 @@ Item {
               }
               onOpenRequested: function (entry) { root.handleOpenRequest(entry) }
               onNavigated: function (p) { root.rememberSession() }
+              onZoomRequested: function (delta) { root.nudgeViewScale(delta) }
               onContextRequested: function (entry, x, y) {
                 root.menuKind = ""
                 root.menuEntry = entry
@@ -1564,6 +1684,7 @@ Item {
               }
               onOpenRequested: function (entry) { root.handleOpenRequest(entry) }
               onNavigated: function (p) { root.rememberSession() }
+              onZoomRequested: function (delta) { root.nudgeViewScale(delta) }
               onContextRequested: function (entry, x, y) {
                 root.menuKind = ""
                 root.menuEntry = entry
@@ -1684,7 +1805,7 @@ Item {
               if (p.loading)
                 return Model.formatCount(p.rows.length, "item", "items") + ", reading"
               if (p.selectedCount > 0)
-                return Model.formatCount(p.selectedCount, "item selected", "items selected")
+                return Model.formatCount(p.selectedCount, "item selected", "items selected") + root.selectionBytes(p)
               if (p.searching)
                 return Model.formatCount(p.rows.length, "match", "matches")
                   + (p.searchTruncated ? " (truncated)" : "")
@@ -1703,6 +1824,17 @@ Item {
             font.pixelSize: Style.font.caption
             elide: Text.ElideRight
           }
+        }
+
+        Text {
+          anchors.right: parent.right
+          anchors.rightMargin: Style.space(10)
+          anchors.verticalCenter: parent.verticalCenter
+          visible: root.freeSpaceText !== "" && (root.service === null || root.service.helperError === "")
+          text: root.freeSpaceText
+          color: Util.alpha(Color.foreground, 0.5)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
         }
 
         Text {
@@ -2045,6 +2177,7 @@ Item {
             width: parent.width
             visible: root.dialogMode === "rename" || root.dialogMode === "newfolder"
               || root.dialogMode === "newfile" || root.dialogMode === "path"
+              || root.dialogMode === "selectmatch"
             onAccepted: root.submitDialog()
             Keys.onEscapePressed: root.closeDialog()
           }

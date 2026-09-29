@@ -766,6 +766,19 @@ Item {
     Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", cmd])
   }
 
+  function sendViaLocalSend(paths) {
+    if (!paths || paths.length === 0) return
+    Quickshell.execDetached(["localsend", "--headless", "send"].concat(paths))
+  }
+
+  function setBackground(path, onDone, onError) {
+    return request({ op: "setbackground", path: path }, { onDone: onDone, onError: onError })
+  }
+
+  function makeLink(target, linkPath, onDone, onError) {
+    return request({ op: "symlink", target: target, path: linkPath }, { onDone: onDone, onError: onError })
+  }
+
   function openEditor(path) {
     var configured = String(setting("editor", "") || "").trim()
     if (configured) Quickshell.execDetached(["sh", "-c", configured + " \"$1\"", "omafile", path])

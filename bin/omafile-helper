@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import ctypes
 import errno
+import filecmp
 import fnmatch
 import grp
 import json
@@ -118,6 +119,35 @@ def list_sort_key(entry):
 
 PEEK_LIMIT = 262144
 
+def child_count(path_bytes, hidden):
+    try:
+        n = 0
+        with os.scandir(path_bytes) as it:
+            for e in it:
+                if not hidden and e.name.startswith(b"."):
+                    continue
+                n += 1
+        return n
+    except OSError:
+        return None
+
+
+def is_network_path(path_bytes):
+    try:
+        with open("/proc/self/mounts", "rb") as f:
+            best, best_type = b"", b""
+            for line in f:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                mnt = parts[1].replace(b"\\040", b" ")
+                if (path_bytes == mnt or path_bytes.startswith(mnt.rstrip(b"/") + b"/")) and len(mnt) > len(best):
+                    best, best_type = mnt, parts[2]
+        return to_str(best_type) in NETWORK_FILESYSTEMS
+    except OSError:
+        return False
+
+
 def op_list(req, cancel_event):
     req_id = req["id"]
     path = req.get("path")
@@ -133,6 +163,9 @@ def op_list(req, cancel_event):
     except (TypeError, ValueError):
         chunk_size = 500
     path_bytes = to_bytes(path)
+    # Folder item counts, like Nautilus; skipped on network mounts where each
+    # extra listing is a round trip
+    count_children = b"/gvfs/" not in path_bytes and not is_network_path(path_bytes)
     collected = []
     try:
         with os.scandir(path_bytes) as it:
@@ -148,7 +181,8 @@ def op_list(req, cancel_event):
                 except OSError:
                     continue
                 kind, size, link_target = classify(entry.path, lst)
-                collected.append([name_str, kind, size, int(lst.st_mtime), lst.st_mode, link_target])
+                count = child_count(entry.path, hidden) if count_children and kind == "d" else None
+                collected.append([name_str, kind, size, int(lst.st_mtime), lst.st_mode, link_target, None, count])
     except OSError as e:
         send_error(req_id, errno_code(e), e.strerror or str(e), path)
         return
@@ -1856,6 +1890,71 @@ def op_unmountdev(req, cancel_event):
     emit({"id": req_id, "t": "done"})
 
 
+OMARCHY_STATE = os.path.join(HOME, ".local", "state", "omarchy", "current")
+USER_BACKGROUNDS = os.path.join(HOME, ".config", "omarchy", "backgrounds")
+BACKGROUND_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp")
+
+
+def op_setbackground(req):
+    """Same steps as the Nautilus "Set as Omarchy Background" extension."""
+    req_id = req["id"]
+    path = req.get("path")
+    if not isinstance(path, str) or not os.path.isfile(path) or not path.lower().endswith(BACKGROUND_EXTS):
+        send_error(req_id, "EINVAL", "an image file is required")
+        return
+    path = os.path.realpath(path)
+    try:
+        with open(os.path.join(OMARCHY_STATE, "theme.name")) as f:
+            theme = f.read().strip()
+    except OSError:
+        theme = ""
+    if not theme:
+        send_error(req_id, "ENOENT", "no current Omarchy theme")
+        return
+    theme_dir = os.path.join(USER_BACKGROUNDS, theme)
+    theme_bgs = os.path.realpath(os.path.join(OMARCHY_STATE, "theme", "backgrounds"))
+    try:
+        if os.path.dirname(path) in (theme_bgs, theme_dir):
+            target = path
+        else:
+            os.makedirs(theme_dir, exist_ok=True)
+            stem, ext = os.path.splitext(os.path.basename(path))
+            target = os.path.join(theme_dir, stem + ext)
+            index = 1
+            while os.path.exists(target):
+                if filecmp.cmp(path, target, shallow=False):
+                    break
+                target = os.path.join(theme_dir, "%s-%d%s" % (stem, index, ext))
+                index += 1
+            if not os.path.exists(target):
+                shutil.copy2(path, target)
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e), path)
+        return
+    # Omarchy's own scripts live outside the trusted bin dirs and need the
+    # session environment, so they run like the Nautilus extension runs them
+    set_bg = shutil.which("omarchy-theme-bg-set")
+    if not set_bg:
+        send_error(req_id, "EUNSUPPORTED", "omarchy-theme-bg-set is not on PATH")
+        return
+    try:
+        proc = subprocess.run([set_bg, target], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        send_error(req_id, "EFAIL", str(e))
+        return
+    if proc.returncode != 0:
+        send_error(req_id, "EFAIL", (proc.stderr or proc.stdout or "could not set the background").strip())
+        return
+    cache = shutil.which("omarchy-theme-bg-cache")
+    try:
+        if cache:
+            subprocess.Popen([cache], stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+    send_done(req_id, path=target)
+
+
 def op_drives(req):
     req_id = req["id"]
     drives = []
@@ -2167,6 +2266,7 @@ CANCELLABLE_OPS = {
 }
 
 SIMPLE_OPS = {
+    "setbackground": op_setbackground,
     "stat": op_stat,
     "peek": op_peek,
     "trash": op_trash,
