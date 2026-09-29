@@ -532,6 +532,11 @@ Item {
     afterLaunch()
   }
 
+  function driveNotice(title, m) {
+    Quickshell.execDetached(["notify-send", "-a", "Omafile", "-i", "drive-harddisk",
+      title, String((m && m.message) || "")])
+  }
+
   function afterLaunch() {
     if (popupMode) requestClose()
   }
@@ -1360,6 +1365,24 @@ Item {
           }
           onDisconnectServer: function (path) {
             if (root.service) root.service.disconnectServer(path, null, null)
+          }
+          onMountDrive: function (device) {
+            if (!root.service) return
+            root.service.mountDrive(device, function (m) {
+              if (m.path) sidebar.navigate(String(m.path))
+            }, function (m) {
+              root.driveNotice("Could not mount " + device, m)
+            })
+          }
+          onUnmountDrive: function (device, mount) {
+            if (!root.service) return
+            var p = root.activePane()
+            // Step out of the drive first so it is not busy
+            if (p && (p.path === mount || p.path.indexOf(mount + "/") === 0))
+              sidebar.navigate(root.service.home)
+            root.service.unmountDrive(device, null, function (m) {
+              root.driveNotice("Could not unmount " + mount, m)
+            })
           }
         }
 
