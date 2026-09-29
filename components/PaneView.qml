@@ -21,7 +21,10 @@ Item {
   property var patterns: []
 
   // Match Nautilus: Adwaita Sans 11pt x 1.1818 text scale ~ 17px.
-  readonly property int nameSize: 17
+  property int nameSize: 17
+  property int detailSize: Style.font.bodySmall
+  // Grid cells grow with the name size so labels keep room
+  readonly property real textGrowth: Math.max(1, nameSize / 17)
   readonly property int rowHeight: Math.round((nameSize + Style.space(12)) * viewScale)
   readonly property int listIconSize: Math.round(Style.space(18) * viewScale)
   readonly property int gridIconSize: Math.round(Style.space(view === "gallery" ? 150 : 48) * viewScale)
@@ -650,7 +653,7 @@ Item {
       Row {
         id: header
         width: parent.width
-        height: pane.view === "list" ? Style.space(22) : 0
+        height: pane.view === "list" ? Math.max(Style.space(22), pane.detailSize + Style.space(9)) : 0
         visible: pane.view === "list"
         spacing: 0
 
@@ -679,7 +682,7 @@ Item {
                   : "  " + Icons.actionGlyph("chevronUp")) : "")
               color: pane.sortBy === modelData.key ? pane.accent : Util.alpha(pane.fg, 0.6)
               font.family: Style.font.family
-              font.pixelSize: Style.font.caption
+              font.pixelSize: pane.detailSize
               elide: Text.ElideRight
             }
 
@@ -821,7 +824,7 @@ Item {
               text: row.entry.isDir ? "" : Model.formatSize(row.entry.size)
               color: Util.alpha(pane.fg, 0.7)
               font.family: Style.font.family
-              font.pixelSize: pane.scaled(Style.font.bodySmall)
+              font.pixelSize: pane.scaled(pane.detailSize)
             }
 
             Text {
@@ -832,7 +835,7 @@ Item {
               text: Model.kindLabel(row.entry)
               color: Util.alpha(pane.fg, 0.55)
               font.family: Style.font.family
-              font.pixelSize: pane.scaled(Style.font.bodySmall)
+              font.pixelSize: pane.scaled(pane.detailSize)
               elide: Text.ElideRight
             }
 
@@ -844,7 +847,7 @@ Item {
               text: Model.formatDate(row.entry.mtime, Date.now())
               color: Util.alpha(pane.fg, 0.55)
               font.family: Style.font.family
-              font.pixelSize: pane.scaled(Style.font.bodySmall)
+              font.pixelSize: pane.scaled(pane.detailSize)
               elide: Text.ElideRight
             }
           }
@@ -859,9 +862,9 @@ Item {
         model: pane.rows
         visible: pane.view !== "list"
         cellWidth: pane.compactView ? Math.round(Style.space(230) * pane.viewScale)
-          : Math.round(Style.space(pane.view === "gallery" ? 190 : 140) * pane.viewScale)
+          : Math.round(Style.space(pane.view === "gallery" ? 190 : 140) * pane.viewScale * pane.textGrowth)
         cellHeight: pane.compactView ? pane.rowHeight + Style.space(2)
-          : Math.round(Style.space(pane.view === "gallery" ? 206 : 116) * pane.viewScale)
+          : Math.round(Style.space(pane.view === "gallery" ? 206 : 116) * pane.viewScale * pane.textGrowth)
         cacheBuffer: 600
         boundsBehavior: Flickable.StopAtBounds
 

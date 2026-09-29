@@ -14,17 +14,53 @@ Item {
   property var service: null
 
   readonly property string pluginId: "athesias.omafile"
-  readonly property string popupMode: service ? service.windowMode : "window"
-  readonly property bool asPopup: popupMode === "popup"
+  // "floating" (and the old "popup" value) floats the window; "window" tiles it
+  readonly property string windowMode: service ? service.windowMode : "window"
+  readonly property bool floating: windowMode === "floating" || windowMode === "popup"
+  readonly property bool asPopup: false
 
   property bool shown: false
   property bool closingFromHost: false
   property bool switchingSurface: false
   property string pendingPayload: "{}"
 
+  // A named Hyprland rule floats and centres the window. It is redefined on
+  // every open so it survives Hyprland config reloads and follows the setting.
+  function floatRuleCommand() {
+    return "(function() local r = hl.window_rule({ name = \"omafile-float\", "
+      + "match = { class = \"^org.quickshell$\", title = \"^Omafile$\" }, "
+      + "float = true, size = { 1280, 820 }, center = true }) "
+      + "r:set_enabled(" + (host.floating ? "true" : "false") + ") "
+      + "return hl.dsp.cursor.move(hl.get_cursor_pos()) end)()"
+  }
+
+  function applyFloatRule() {
+    Hyprland.dispatch(host.floatRuleCommand())
+  }
+
+  onFloatingChanged: applyFloatRule()
+  Component.onCompleted: applyFloatRule()
+
   function open(payloadJson) {
     closingFromHost = false
     pendingPayload = payloadJson && String(payloadJson).length > 0 ? String(payloadJson) : "{}"
+    if (!shown) {
+      // Let Hyprland take the rule before the window maps
+      applyFloatRule()
+      showTimer.restart()
+      return
+    }
+    showNow()
+  }
+
+  Timer {
+    id: showTimer
+    interval: 60
+    repeat: false
+    onTriggered: host.showNow()
+  }
+
+  function showNow() {
     shown = true
     Qt.callLater(function () {
       var item = host.activeBrowser()
@@ -55,19 +91,7 @@ Item {
   }
 
   function activeBrowser() {
-    if (asPopup) return popupLoader.item
     return windowLoader.item
-  }
-
-  onAsPopupChanged: {
-    if (!shown) return
-    switchingSurface = true
-    Qt.callLater(function () {
-      var item = host.activeBrowser()
-      if (item) item.open("{}")
-      if (!host.asPopup) raiseTimer.restart()
-      host.switchingSurface = false
-    })
   }
 
   Timer {
@@ -109,54 +133,6 @@ Item {
       anchors.fill: parent
       active: window.visible
       sourceComponent: browserComponent
-    }
-  }
-
-  PanelWindow {
-    id: popup
-    visible: host.shown && host.asPopup
-    color: "transparent"
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "omafile-popup"
-    WlrLayershell.keyboardFocus: host.shown && host.asPopup
-      ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
-
-    anchors {
-      top: true
-      bottom: true
-      left: true
-      right: true
-    }
-
-    Rectangle {
-      anchors.fill: parent
-      color: Util.alpha(Color.background, 0.55)
-
-      MouseArea {
-        anchors.fill: parent
-        onClicked: host.requestClose()
-      }
-    }
-
-    Rectangle {
-      anchors.centerIn: parent
-      width: Math.min(parent.width - Style.space(80), Style.space(1100))
-      height: Math.min(parent.height - Style.space(80), Style.space(760))
-      color: Color.background
-      radius: Style.cornerRadius
-      border.width: Math.max(1, Style.space(1))
-      border.color: Color.popups.border
-      clip: true
-
-      MouseArea { anchors.fill: parent }
-
-      Loader {
-        id: popupLoader
-        anchors.fill: parent
-        active: popup.visible
-        sourceComponent: browserComponent
-      }
     }
   }
 }

@@ -12,6 +12,8 @@ Item {
   property bool findMode: false
   property bool editing: false
   property bool filterOpen: false
+  property int fontSize: Style.font.bodySmall
+  readonly property int controlHeight: Math.max(Style.space(20), fontSize + Style.space(7))
   readonly property bool virtualView: path === "recent:"
   readonly property var crumbs: virtualView
     ? [{ label: "Recent", path: "recent:" }]
@@ -30,7 +32,7 @@ Item {
     if (bar.editing) bar.endEdit()
   }
 
-  implicitHeight: Style.space(28)
+  implicitHeight: Math.max(Style.space(28), fontSize + Style.space(15))
 
   function beginEdit() {
     editing = true
@@ -139,12 +141,12 @@ Item {
                   text: " " + Icons.actionGlyph("chevronRight") + " "
                   color: Util.alpha(Color.foreground, 0.35)
                   font.family: Style.font.family
-                  font.pixelSize: Style.font.caption
+                  font.pixelSize: bar.fontSize
                 }
 
                 Rectangle {
                   width: crumbLabel.implicitWidth + Style.space(8)
-                  height: Style.space(20)
+                  height: bar.controlHeight
                   radius: Style.cornerRadius
                   color: crumbHover.hovered ? Util.alpha(Color.foreground, 0.12) : "transparent"
 
@@ -157,7 +159,7 @@ Item {
                     color: index === bar.crumbs.length - 1
                       ? Color.foreground : Util.alpha(Color.foreground, 0.65)
                     font.family: Style.font.family
-                    font.pixelSize: Style.font.bodySmall
+                    font.pixelSize: bar.fontSize
                   }
 
                   MouseArea {
@@ -182,7 +184,7 @@ Item {
           selectionColor: Util.alpha(Color.accent, 0.45)
           selectedTextColor: Color.foreground
           font.family: Style.font.family
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: bar.fontSize
           clip: true
           selectByMouse: true
 
@@ -211,7 +213,7 @@ Item {
         Rectangle {
           anchors.centerIn: parent
           width: Style.space(24)
-          height: Style.space(20)
+          height: bar.controlHeight
           radius: Style.cornerRadius
           color: iconHover.hovered ? Util.alpha(Color.foreground, 0.12) : "transparent"
 
@@ -222,7 +224,7 @@ Item {
             text: Icons.actionGlyph("search")
             color: Util.alpha(Color.foreground, iconHover.hovered ? 0.8 : 0.45)
             font.family: Style.font.family
-            font.pixelSize: Style.font.iconSmall
+            font.pixelSize: bar.fontSize
           }
 
           MouseArea {
@@ -261,13 +263,13 @@ Item {
           text: Icons.actionGlyph("search")
           color: bar.findMode ? Color.urgent : Util.alpha(Color.foreground, 0.6)
           font.family: Style.font.family
-          font.pixelSize: Style.font.iconSmall
+          font.pixelSize: bar.fontSize
         }
 
         Item {
           anchors.verticalCenter: parent.verticalCenter
           width: parent.width - Style.space(56)
-          height: Style.space(20)
+          height: bar.controlHeight
 
           Text {
             anchors.left: parent.left
@@ -276,7 +278,7 @@ Item {
             text: bar.findMode ? "Search this folder and everything in it" : "Filter this folder"
             color: Util.alpha(Color.foreground, 0.35)
             font.family: Style.font.family
-            font.pixelSize: Style.font.bodySmall
+            font.pixelSize: bar.fontSize
             elide: Text.ElideRight
             width: parent.width
           }
@@ -289,7 +291,7 @@ Item {
             selectionColor: Util.alpha(Color.accent, 0.45)
             selectedTextColor: Color.foreground
             font.family: Style.font.family
-            font.pixelSize: Style.font.bodySmall
+            font.pixelSize: bar.fontSize
             clip: true
             selectByMouse: true
 
@@ -317,7 +319,7 @@ Item {
           text: Icons.actionGlyph("close")
           color: closeHover.hovered ? Color.urgent : Util.alpha(Color.foreground, 0.45)
           font.family: Style.font.family
-          font.pixelSize: Style.font.iconSmall
+          font.pixelSize: bar.fontSize
 
           HoverHandler { id: closeHover }
 

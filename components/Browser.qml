@@ -32,6 +32,33 @@ Item {
   property string confirmAction: ""
   property string settingsSection: "opening"
   readonly property real viewScale: clampViewScale(service ? service.setting("viewScale", 1) : 1)
+
+  // Text sizes, set from Settings > Text size (pixels)
+  readonly property var fontSizeRows: [
+    { key: "nameFontSize", label: "File and folder names", fallback: 17 },
+    { key: "sidebarFontSize", label: "Sidebar", fallback: 17 },
+    { key: "detailsFontSize", label: "Size, type and modified columns", fallback: Style.font.bodySmall },
+    { key: "pathBarFontSize", label: "Path bar", fallback: Style.font.bodySmall },
+    { key: "tabFontSize", label: "Tabs", fallback: Style.font.caption },
+    { key: "menuFontSize", label: "Right-click menus", fallback: Style.font.bodySmall }
+  ]
+  readonly property int nameFontSize: fontSetting("nameFontSize", 17)
+  readonly property int sidebarFontSize: fontSetting("sidebarFontSize", 17)
+  readonly property int detailsFontSize: fontSetting("detailsFontSize", Style.font.bodySmall)
+  readonly property int pathBarFontSize: fontSetting("pathBarFontSize", Style.font.bodySmall)
+  readonly property int tabFontSize: fontSetting("tabFontSize", Style.font.caption)
+  readonly property int menuFontSize: fontSetting("menuFontSize", Style.font.bodySmall)
+
+  function fontSetting(key, fallback) {
+    if (!service) return fallback
+    var n = Number(service.settingNow(key, fallback))
+    return isFinite(n) && n >= 8 && n <= 40 ? Math.round(n) : fallback
+  }
+
+  function resetFontSizes() {
+    for (var i = 0; i < fontSizeRows.length; i++)
+      applySettingNow(fontSizeRows[i].key, fontSizeRows[i].fallback)
+  }
   property bool menuOpen: false
   property int menuCursor: -1
   property var menuActions: []
@@ -1255,7 +1282,7 @@ Item {
       Rectangle {
         id: toolbar
         width: parent.width
-        height: Style.space(38)
+        height: Math.max(Style.space(38), pathBar.implicitHeight + Style.space(10))
         color: Util.alpha(Color.foreground, 0.04)
 
         Row {
@@ -1361,6 +1388,7 @@ Item {
 
         PathBar {
           id: pathBar
+          fontSize: root.pathBarFontSize
           anchors.left: navButtons.right
           anchors.right: rightControls.left
           anchors.leftMargin: Style.space(6)
@@ -1407,7 +1435,8 @@ Item {
 
         SidebarPlaces {
           id: sidebar
-          width: root.sidebarVisible ? Style.space(230) : 0
+          width: root.sidebarVisible ? Math.round(Style.space(230) * Math.max(1, root.sidebarFontSize / 17)) : 0
+          labelSize: root.sidebarFontSize
           height: parent.height
           visible: root.sidebarVisible
           service: root.service
@@ -1445,6 +1474,7 @@ Item {
 
             TabStrip {
               id: tabStripA
+              fontSize: root.tabFontSize
               width: parent.width
               tabs: root.tabsA
               activeIndex: root.activeA
@@ -1457,6 +1487,8 @@ Item {
             PaneView {
               id: paneA
               width: parent.width
+              nameSize: root.nameFontSize
+              detailSize: root.detailsFontSize
               patterns: root.picking ? root.pickPatterns() : []
               height: parent.height - (tabStripA.visible ? tabStripA.height : 0)
               service: root.service
@@ -1490,6 +1522,7 @@ Item {
 
             TabStrip {
               id: tabStripB
+              fontSize: root.tabFontSize
               width: parent.width
               tabs: root.tabsB
               activeIndex: root.activeB
@@ -1502,6 +1535,8 @@ Item {
             PaneView {
               id: paneB
               width: parent.width
+              nameSize: root.nameFontSize
+              detailSize: root.detailsFontSize
               patterns: root.picking ? root.pickPatterns() : []
               height: parent.height - (tabStripB.visible ? tabStripB.height : 0)
               service: root.service
@@ -1697,7 +1732,7 @@ Item {
       visible: root.menuOpen
       x: Math.min(root.menuX, keyCatcher.width - width - Style.space(8))
       y: Math.min(root.menuY, keyCatcher.height - height - Style.space(8))
-      width: Style.space(200)
+      width: Math.round(Style.space(200) * Math.max(1, root.menuFontSize / Style.font.bodySmall))
       height: menuColumn.implicitHeight + Style.space(8)
       color: Color.menu.background
       border.width: Math.max(1, Style.space(1))
@@ -1717,7 +1752,8 @@ Item {
             required property var modelData
             required property int index
             width: menuColumn.width
-            height: modelData.label === "" ? Style.space(7) : Style.space(24)
+            height: modelData.label === "" ? Style.space(7)
+              : Math.max(Style.space(24), root.menuFontSize + Style.space(11))
 
             Rectangle {
               anchors.centerIn: parent
@@ -1747,7 +1783,7 @@ Item {
                   text: modelData.glyph
                   color: Util.alpha(Color.menu.text, modelData.disabled ? 0.3 : 0.7)
                   font.family: Style.font.family
-                  font.pixelSize: Style.font.iconSmall
+                  font.pixelSize: root.menuFontSize
                 }
 
                 Text {
@@ -1758,7 +1794,7 @@ Item {
                     : ((itemHover.hovered || root.menuCursor === index)
                       ? Color.menu.selectedText : Color.menu.text)
                   font.family: Style.font.family
-                  font.pixelSize: Style.font.bodySmall
+                  font.pixelSize: root.menuFontSize
                 }
               }
 
@@ -2230,14 +2266,14 @@ Item {
 
                   Toggle {
                     width: parent.width
-                    label: "Open as a popup"
-                    description: root.popupMode
-                      ? "A centred panel over the desktop that closes when you click away"
-                      : "Currently a normal window that tiles and resizes like any app"
-                    checked: root.popupMode
+                    label: "Open as a floating window"
+                    description: root.floatingMode
+                      ? "Opens floating and centred. Takes effect the next time Omafile opens"
+                      : "Opens tiled like any other app. Takes effect the next time Omafile opens"
+                    checked: root.floatingMode
                     onClicked: {
                       if (!root.service) return
-                      root.service.updateSetting("windowMode", root.popupMode ? "window" : "popup")
+                      root.service.updateSetting("windowMode", root.floatingMode ? "window" : "floating")
                     }
                   }
 
@@ -2382,6 +2418,64 @@ Item {
                     text: "Reset to 100 percent"
                     bordered: true
                     onClicked: root.setViewScale(1)
+                  }
+                }
+
+                Column {
+                  width: settingsColumn.width
+                  spacing: Style.space(4)
+                  visible: root.settingsSection === "text"
+
+                  Repeater {
+                    model: root.dialogMode === "settings" ? root.fontSizeRows : []
+
+                    delegate: Column {
+                      required property var modelData
+                      width: settingsColumn.width
+                      spacing: Style.space(2)
+
+                      Item {
+                        width: parent.width
+                        height: Math.max(sizeLabel.implicitHeight, sizeValue.implicitHeight) + Style.space(6)
+
+                        Text {
+                          id: sizeLabel
+                          anchors.left: parent.left
+                          anchors.bottom: parent.bottom
+                          text: modelData.label
+                          color: Color.popups.text
+                          font.family: Style.font.family
+                          font.pixelSize: Style.font.bodySmall
+                        }
+
+                        Text {
+                          id: sizeValue
+                          anchors.right: parent.right
+                          anchors.bottom: parent.bottom
+                          text: Math.round(sizeSlider.liveValue) + " px"
+                          color: Util.alpha(Color.popups.text, 0.6)
+                          font.family: Style.font.family
+                          font.pixelSize: Style.font.caption
+                        }
+                      }
+
+                      PanelSlider {
+                        id: sizeSlider
+                        width: parent.width
+                        value: root.fontSetting(modelData.key, modelData.fallback)
+                        minimum: 10
+                        maximum: 28
+                        step: 1
+                        integer: true
+                        onReleased: function (v) { root.applySettingNow(modelData.key, Math.round(v)) }
+                      }
+                    }
+                  }
+
+                  Button {
+                    text: "Reset text sizes"
+                    bordered: true
+                    onClicked: root.resetFontSizes()
                   }
                 }
 
@@ -2814,7 +2908,10 @@ Item {
       || dialogMode === "shortcuts" || dialogMode === "settings"
   }
 
-  readonly property bool popupMode: service ? service.windowMode === "popup" : false
+  // The old popup surface was removed; floating mode is a normal window
+  readonly property bool popupMode: false
+  readonly property bool floatingMode: service
+    ? (service.windowMode === "floating" || service.windowMode === "popup") : false
   readonly property real dialogRoom: Math.max(Style.space(140), height - Style.space(130))
 
   function boolSetting(key, fallback) {
@@ -2832,6 +2929,7 @@ Item {
       { key: "opening", label: "Opening" },
       { key: "browsing", label: "Browsing" },
       { key: "view", label: "View size" },
+      { key: "text", label: "Text size" },
       { key: "deleting", label: "Deleting" },
       { key: "commands", label: "Commands" },
       { key: "bar", label: "Bar and trash" },

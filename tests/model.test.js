@@ -214,13 +214,13 @@ test('breadcrumbs for a nested path', function () {
 });
 
 test('breadcrumbs keep a tilde path rooted at home', function () {
-  assert.deepEqual(plainCrumbs(Model.breadcrumbs('~')), [{ label: '~', path: '~' }]);
+  assert.deepEqual(plainCrumbs(Model.breadcrumbs('~')), [{ label: '~Home', path: '~' }]);
   assert.deepEqual(plainCrumbs(Model.breadcrumbs('~/Downloads')), [
-    { label: '~', path: '~' },
+    { label: '~Home', path: '~' },
     { label: 'Downloads', path: '~/Downloads' }
   ]);
   assert.deepEqual(plainCrumbs(Model.breadcrumbs('~/a/b')), [
-    { label: '~', path: '~' },
+    { label: '~Home', path: '~' },
     { label: 'a', path: '~/a' },
     { label: 'b', path: '~/a/b' }
   ]);

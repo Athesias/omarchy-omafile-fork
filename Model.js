@@ -325,7 +325,7 @@ function collapseTilde(path, homePath) {
 function breadcrumbs(path) {
   var p = normalizePath(path);
   var fromHome = p.charAt(0) === '~';
-  var out = [fromHome ? { label: '~', path: '~' } : { label: '/', path: '/' }];
+  var out = [fromHome ? { label: '~Home', path: '~' } : { label: '/', path: '/' }];
   if (p === '/' || p === '~') return out;
   var parts = p.split('/');
   var cur = fromHome ? '~' : '';

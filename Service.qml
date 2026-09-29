@@ -18,7 +18,9 @@ Item {
   readonly property string helperPath: String(Qt.resolvedUrl("bin/omafile-helper")).replace(/^file:\/\//, "")
 
   readonly property var defaults: manifest && manifest.barWidget && manifest.barWidget.defaults ? manifest.barWidget.defaults : ({})
-  readonly property var settings: resolveSettings(shell ? shell.barConfig : null)
+  // Settings live in state.json; a bar entry (if one exists) still wins
+  property var savedSettings: ({})
+  readonly property var settings: resolveSettings(shell ? shell.barConfig : null, savedSettings)
 
   property bool helperReady: false
   property string helperError: ""
@@ -67,9 +69,10 @@ Item {
     return Math.max(0, Math.min(1, done / total))
   }
 
-  function resolveSettings(config) {
+  function resolveSettings(config, saved) {
     var merged = {}
     for (var d in defaults) merged[d] = defaults[d]
+    if (saved) for (var s in saved) merged[s] = saved[s]
     var entry = findEntry(config)
     if (entry) for (var k in entry) if (k !== "id") merged[k] = entry[k]
     return merged
@@ -601,6 +604,11 @@ Item {
     for (var k in localSettings) next[k] = localSettings[k]
     next[key] = value
     localSettings = next
+    var stored = {}
+    for (var sk in savedSettings) stored[sk] = savedSettings[sk]
+    stored[key] = value
+    savedSettings = stored
+    persist()
     var patch = {}
     patch[key] = value
     request({ op: "barsettings", settings: patch }, null)
@@ -897,7 +905,7 @@ Item {
       version: 1,
       recent: recent,
       pinned: pinned,
-      hiddenDrives: hiddenDrives,
+      settings: savedSettings,
       servers: servers,
       previousFileManager: previousFileManager,
       session: session
@@ -915,6 +923,7 @@ Item {
     if (!parsed || typeof parsed !== "object") return
     if (parsed.recent) recent = parsed.recent
     if (parsed.pinned) pinned = parsed.pinned
+    if (parsed.settings && typeof parsed.settings === "object") savedSettings = parsed.settings
     // Drive hiding was removed; every drive shows in the sidebar
     if (parsed.servers) servers = parsed.servers
     if (parsed.previousFileManager) previousFileManager = String(parsed.previousFileManager)
@@ -1065,7 +1074,7 @@ Item {
 
     function windowmode(mode: string): string {
       var value = String(mode || "").toLowerCase()
-      if (value !== "window" && value !== "popup") return "use window or popup"
+      if (value !== "window" && value !== "floating") return "use window or floating"
       root.updateSetting("windowMode", value)
       return "ok"
     }

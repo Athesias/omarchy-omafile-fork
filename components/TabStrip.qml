@@ -9,13 +9,15 @@ Item {
 
   property var tabs: []
   property int activeIndex: 0
+  property int fontSize: Style.font.caption
+  readonly property int tabHeight: Math.max(Style.space(22), fontSize + Style.space(9))
 
   signal selectTab(int index)
   signal closeTab(int index)
   signal addTab()
 
-  implicitHeight: Style.space(26)
-  height: Style.space(26)
+  implicitHeight: tabHeight + Style.space(4)
+  height: implicitHeight
 
   Rectangle {
     anchors.fill: parent
@@ -34,8 +36,8 @@ Item {
           required property var modelData
           required property int index
 
-          width: Style.space(150)
-          height: Style.space(22)
+          width: Math.round(Style.space(150) * Math.max(1, strip.fontSize / Style.font.caption))
+          height: strip.tabHeight
           radius: Style.cornerRadius
           color: index === strip.activeIndex
             ? Util.alpha(Color.accent, 0.18)
@@ -64,7 +66,7 @@ Item {
               text: Model.basename(modelData.path) || "/"
               color: index === strip.activeIndex ? Color.foreground : Util.alpha(Color.foreground, 0.6)
               font.family: Style.font.family
-              font.pixelSize: Style.font.caption
+              font.pixelSize: strip.fontSize
               elide: Text.ElideMiddle
             }
 
@@ -74,7 +76,7 @@ Item {
               text: Icons.actionGlyph("close")
               color: closeHover.hovered ? Color.urgent : Util.alpha(Color.foreground, 0.5)
               font.family: Style.font.family
-              font.pixelSize: Style.font.iconSmall
+              font.pixelSize: strip.fontSize
 
               HoverHandler { id: closeHover }
 
@@ -89,7 +91,7 @@ Item {
 
       Rectangle {
         width: Style.space(22)
-        height: Style.space(22)
+        height: strip.tabHeight
         radius: Style.cornerRadius
         color: addHover.hovered ? Util.alpha(Color.foreground, 0.12) : "transparent"
 
@@ -100,7 +102,7 @@ Item {
           text: Icons.actionGlyph("add")
           color: addHover.hovered ? Color.accent : Util.alpha(Color.foreground, 0.6)
           font.family: Style.font.family
-          font.pixelSize: Style.font.iconSmall
+          font.pixelSize: strip.fontSize
         }
 
         MouseArea {

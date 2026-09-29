@@ -15,7 +15,7 @@ Item {
 
   property bool showDrives: true
   // Match Nautilus: Adwaita Sans 11pt x 1.1818 text scale ~ 17px.
-  readonly property int labelSize: 17
+  property int labelSize: 17
   readonly property int rowHeight: labelSize + Style.space(12)
   property bool keyboardActive: false
   property int cursorIndex: 0
