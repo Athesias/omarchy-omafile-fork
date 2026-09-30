@@ -15,7 +15,7 @@ A lightweight, fast file manager plugin for Omarchy running in the shell.
 * Background copy and move with persistent progress tracking
 * Freedesktop trash integration, compatible with GNOME Files
 * Recursive file search across directories
-* Image previews in both list and grid view
+* Image previews in list, compact and grid view, plus thumbnails for videos, PDFs, office files and anything else your system has a thumbnailer for
 * Recent files, and bookmarks for the folders you use most
 * Connect to SMB, SFTP, WebDAV and other servers
 * Settings inside the window, no config file editing
@@ -93,6 +93,10 @@ Zoom scales rows, icons and grid cells from 50 to 300 percent. Use the minus and
 ### Preview
 
 Press Space on a file to preview it without opening another app. Images are shown full size. Text files such as `.yml`, `.json`, `.md` or scripts are shown as text, up to the first 256 KB. Arrow keys move to the next file while the preview stays open. Enter opens the file, and Space or Escape closes the preview. Preview is also in the right click menu.
+
+### Thumbnails
+
+Videos, PDFs, office documents and other files get a thumbnail from the thumbnailers your system already has, the same ones GNOME Files uses. Omarchy ships ffmpegthumbnailer for video and Evince for PDF. Thumbnails are stored in `~/.cache/thumbnails` and shared with GNOME Files, so anything it has already thumbnailed shows up straight away. The cache only holds copies you can read yourself, but it keeps them after the original moves, so clear it if a folder is private. Only root-owned, non-writable-by-others definitions in `/usr/share/thumbnailers` and `/usr/local/share/thumbnailers` are used. User thumbnailers and definitions supplied through XDG data directories are ignored. Turn thumbnails off with the `thumbnails` setting.
 
 ### The sidebar
 
@@ -303,7 +307,7 @@ Configure these keys through the Omarchy bar widget settings:
 | `editor` | Text editor command to open selected files |
 | `showTransferBadge` | Show a progress ring on the bar icon while a transfer runs |
 | `showDrives` | Show the Drives section in the sidebar |
-| `thumbnails` | Show image previews in grid view |
+| `thumbnails` | Show image previews and thumbnails |
 | `glyph` | Custom icon for the bar widget |
 | `mode` | `files` for the file manager icon, `trash` for a trash can |
 | `trashConfirm` | Ask before a right click empties the trash |

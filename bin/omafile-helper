@@ -3,12 +3,14 @@ import ctypes
 import errno
 import fnmatch
 import grp
+import hashlib
 import json
 import mimetypes
 import os
 import pwd
 import re
 import select
+import shlex
 import shutil
 import signal
 import stat
@@ -19,6 +21,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
+import zlib
 
 VERSION = "1.0.0"
 HOME = os.path.expanduser("~")
@@ -1227,6 +1231,434 @@ def op_peek(req):
           "truncated": truncated, "size": len(data)})
     send_done(req_id)
 
+THUMB_BUCKETS = (("normal", 128), ("large", 256), ("x-large", 512), ("xx-large", 1024))
+THUMB_BUCKET_SIZES = dict(THUMB_BUCKETS)
+THUMB_URI_SAFE = "/!$&'()*+,;=:@"
+THUMB_TIMEOUT = 20.0
+THUMB_MAX_READ = 16 * 1024 * 1024
+THUMB_WORKERS = threading.BoundedSemaphore(2)
+THUMB_LOCKS_LOCK = threading.Lock()
+THUMB_LOCKS = {}
+THUMB_TABLES_LOCK = threading.Lock()
+THUMB_TABLES = None
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+def thumb_root():
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(HOME, ".cache")
+    return os.path.join(base, "thumbnails")
+
+def thumb_uri(path_bytes):
+    return "file://" + urllib.parse.quote(path_bytes, safe=THUMB_URI_SAFE)
+
+def data_dirs():
+    dirs = [os.environ.get("XDG_DATA_HOME") or os.path.join(HOME, ".local", "share")]
+    extra = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
+    dirs.extend(d for d in extra.split(":") if d)
+    return dirs
+
+THUMBNAILER_DIRS = ("/usr/local/share/thumbnailers", "/usr/share/thumbnailers")
+
+def trusted_thumbnailer(path):
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISREG(st.st_mode) and trusted_node(st) and trusted_directory_chain(os.path.dirname(path))
+
+def thumbnail_program(name):
+    program = trusted_program(os.path.basename(name))
+    if "/" in name and name != program:
+        raise FileNotFoundError(errno.ENOENT, "untrusted thumbnailer program", name)
+    return program
+
+def parse_thumbnailer(path):
+    if not trusted_thumbnailer(path):
+        return None
+    fields = {}
+    in_entry = False
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("["):
+                    in_entry = line == "[Thumbnailer Entry]"
+                    continue
+                if in_entry and "=" in line:
+                    key, value = line.split("=", 1)
+                    fields[key.strip()] = value.strip()
+    except OSError:
+        return None
+    command = fields.get("Exec", "")
+    if not command:
+        return None
+    try_exec = fields.get("TryExec", "")
+    try:
+        args = shlex.split(command)
+        if not args:
+            return None
+        thumbnail_program(args[0])
+        if try_exec:
+            thumbnail_program(try_exec)
+    except (OSError, ValueError):
+        return None
+    mimes = [m.strip() for m in fields.get("MimeType", "").split(";") if m.strip()]
+    return {"exec": command, "mimes": mimes}
+
+def load_mime_globs(dirs):
+    best = {}
+    for d in reversed(dirs):
+        try:
+            with open(os.path.join(d, "mime", "globs2"), "r", encoding="utf-8", errors="replace") as f:
+                for raw in f:
+                    parts = raw.strip().split(":")
+                    if len(parts) < 3 or parts[0].startswith("#"):
+                        continue
+                    glob = parts[2]
+                    if not glob.startswith("*.") or any(c in glob[2:] for c in "*?[]"):
+                        continue
+                    try:
+                        weight = int(parts[0])
+                    except ValueError:
+                        continue
+                    ext = glob[2:].lower()
+                    if ext not in best or weight > best[ext][0]:
+                        best[ext] = (weight, parts[1])
+        except OSError:
+            continue
+    return {ext: mime for ext, (weight, mime) in best.items()}
+
+def load_mime_aliases(dirs):
+    aliases = {}
+    for d in dirs:
+        try:
+            with open(os.path.join(d, "mime", "aliases"), "r", encoding="utf-8", errors="replace") as f:
+                for raw in f:
+                    parts = raw.split()
+                    if len(parts) == 2:
+                        aliases.setdefault(parts[0], parts[1])
+        except OSError:
+            continue
+    return aliases
+
+def thumb_tables():
+    global THUMB_TABLES
+    with THUMB_TABLES_LOCK:
+        if THUMB_TABLES is not None:
+            return THUMB_TABLES
+        dirs = data_dirs()
+        commands = {}
+        seen = set()
+        for folder in THUMBNAILER_DIRS:
+            try:
+                names = sorted(os.listdir(folder))
+            except OSError:
+                continue
+            for name in names:
+                if not name.endswith(".thumbnailer") or name in seen:
+                    continue
+                seen.add(name)
+                entry = parse_thumbnailer(os.path.join(folder, name))
+                if not entry:
+                    continue
+                for mime in entry["mimes"]:
+                    commands.setdefault(mime, entry["exec"])
+        aliases = load_mime_aliases(dirs)
+        for alias, canonical in aliases.items():
+            if alias in commands and canonical not in commands:
+                commands[canonical] = commands[alias]
+            elif canonical in commands and alias not in commands:
+                commands[alias] = commands[canonical]
+        globs = load_mime_globs(dirs)
+        if not mimetypes.inited:
+            mimetypes.init()
+        for ext, mime in mimetypes.types_map.items():
+            globs.setdefault(ext.lstrip(".").lower(), mime)
+        THUMB_TABLES = {"commands": commands, "globs": globs, "aliases": aliases}
+        return THUMB_TABLES
+
+def guess_mime(name):
+    tables = thumb_tables()
+    lower = name.lower()
+    parts = lower.split(".")
+    for i in range(1, len(parts)):
+        mime = tables["globs"].get(".".join(parts[i:]))
+        if mime:
+            return tables["aliases"].get(mime, mime)
+    return None
+
+def thumbnailer_for(name):
+    mime = guess_mime(name)
+    if not mime:
+        return None, None
+    return thumb_tables()["commands"].get(mime), mime
+
+def png_chunk(kind, body):
+    return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xffffffff)
+
+def png_chunks(data):
+    if not data.startswith(PNG_MAGIC):
+        return None
+    chunks = []
+    pos = 8
+    while pos + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        end = pos + 12 + length
+        if end > len(data):
+            return None
+        chunks.append((kind, data[pos + 8:pos + 8 + length]))
+        pos = end
+        if kind == b"IEND":
+            return chunks
+    return None
+
+def png_text(chunks):
+    out = {}
+    for kind, body in chunks:
+        if kind == b"tEXt" and b"\0" in body:
+            key, value = body.split(b"\0", 1)
+            out[key.decode("latin-1")] = value.decode("latin-1")
+    return out
+
+def png_with_text(chunks, fields):
+    kept = []
+    for kind, body in chunks:
+        if kind == b"tEXt" and b"\0" in body:
+            key = body.split(b"\0", 1)[0].decode("latin-1")
+            if key in fields:
+                continue
+        kept.append((kind, body))
+    text = [(b"tEXt", k.encode("latin-1") + b"\0" + v.encode("latin-1", errors="replace"))
+            for k, v in fields.items()]
+    ordered = kept[:1] + text + kept[1:]
+    return PNG_MAGIC + b"".join(png_chunk(kind, body) for kind, body in ordered)
+
+def blank_png():
+    header = struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0)
+    pixels = zlib.compress(b"\x00\x00\x00\x00\x00")
+    return [(b"IHDR", header), (b"IDAT", pixels), (b"IEND", b"")]
+
+def thumb_matches(path, uri, mtime):
+    try:
+        if os.path.getsize(path) > THUMB_MAX_READ:
+            return False
+        with open(path, "rb") as f:
+            chunks = png_chunks(f.read())
+    except OSError:
+        return False
+    if not chunks:
+        return False
+    meta = png_text(chunks)
+    if meta.get("Thumb::URI") != uri:
+        return False
+    try:
+        return int(float(meta.get("Thumb::MTime", ""))) == mtime
+    except ValueError:
+        return False
+
+def find_thumb(root, name, uri, mtime, bucket):
+    start = [b for b, _ in THUMB_BUCKETS].index(bucket)
+    for folder, _ in THUMB_BUCKETS[start:]:
+        candidate = os.path.join(root, folder, name)
+        if thumb_matches(candidate, uri, mtime):
+            return candidate
+    return None
+
+def failed_before(root, name, uri, mtime):
+    fail_root = os.path.join(root, "fail")
+    try:
+        apps = os.listdir(fail_root)
+    except OSError:
+        return False
+    return any(thumb_matches(os.path.join(fail_root, app, name), uri, mtime) for app in apps)
+
+def private_makedirs(folder):
+    if os.path.isdir(folder):
+        return
+    parent = os.path.dirname(folder)
+    if parent and parent != folder:
+        private_makedirs(parent)
+    try:
+        os.mkdir(folder, 0o700)
+    except FileExistsError:
+        pass
+
+def write_png(path, chunks, fields):
+    folder = os.path.dirname(path)
+    private_makedirs(folder)
+    fd, tmp = tempfile.mkstemp(prefix=".omafile-", suffix=".png", dir=folder)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(png_with_text(chunks, fields))
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+def expand_thumb_command(command, path, uri, out, size):
+    try:
+        args = shlex.split(command)
+    except ValueError:
+        return None
+    subs = {"i": path, "u": uri, "o": out, "s": str(size), "%": "%"}
+    result = []
+    for arg in args:
+        piece = []
+        i = 0
+        while i < len(arg):
+            if arg[i] == "%" and i + 1 < len(arg) and arg[i + 1] in subs:
+                piece.append(subs[arg[i + 1]])
+                i += 2
+            else:
+                piece.append(arg[i])
+                i += 1
+        result.append("".join(piece))
+    return result
+
+def run_thumbnailer(args, cancel_event):
+    try:
+        program = thumbnail_program(args[0])
+        proc = subprocess.Popen([program] + args[1:], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, env=trusted_env(), start_new_session=True)
+    except OSError:
+        return "failed"
+    try:
+        os.setpriority(os.PRIO_PROCESS, proc.pid, 10)
+    except OSError:
+        pass
+    deadline = time.monotonic() + THUMB_TIMEOUT
+    while True:
+        try:
+            code = proc.wait(timeout=0.2)
+            return "ok" if code == 0 else "failed"
+        except subprocess.TimeoutExpired:
+            if cancel_event.is_set() or time.monotonic() > deadline:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                proc.wait()
+                return "cancelled" if cancel_event.is_set() else "timeout"
+
+def acquire_thumb_worker(cancel_event):
+    while not cancel_event.is_set():
+        if THUMB_WORKERS.acquire(timeout=0.2):
+            return True
+    return False
+
+def generate_thumb(root, name, src, uri, st, bucket, command, mime, cancel_event):
+    size = THUMB_BUCKET_SIZES[bucket]
+    folder = os.path.join(root, bucket)
+    private_makedirs(folder)
+    fd, out = tempfile.mkstemp(prefix=".omafile-", suffix=".png", dir=folder)
+    os.close(fd)
+    try:
+        args = expand_thumb_command(command, to_str(src), uri, out, size)
+        if not args:
+            return "failed"
+        status = run_thumbnailer(args, cancel_event)
+        if status != "ok":
+            return status
+        try:
+            with open(out, "rb") as f:
+                chunks = png_chunks(f.read(THUMB_MAX_READ))
+        except OSError:
+            chunks = None
+        if not chunks:
+            return "failed"
+        fields = {"Thumb::URI": uri, "Thumb::MTime": str(int(st.st_mtime)),
+                  "Thumb::Size": str(st.st_size), "Thumb::Mimetype": mime,
+                  "Software": "Omafile " + VERSION}
+        write_png(os.path.join(folder, name), chunks, fields)
+        return "ok"
+    finally:
+        try:
+            os.unlink(out)
+        except OSError:
+            pass
+
+def op_thumb(req, cancel_event):
+    req_id = req["id"]
+    path = req.get("path")
+    bucket = req.get("size")
+    if bucket not in THUMB_BUCKET_SIZES:
+        bucket = "large"
+    if not isinstance(path, str) or not path.startswith("/"):
+        send_error(req_id, "EINVAL", "absolute path required")
+        return
+    src = to_bytes(path)
+    try:
+        st = os.stat(src)
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e), path)
+        return
+    if not stat.S_ISREG(st.st_mode):
+        send_error(req_id, "EINVAL", "not a regular file", path)
+        return
+    root = thumb_root()
+    real = os.path.realpath(src)
+    if real.startswith(to_bytes(root) + b"/"):
+        send_error(req_id, "EUNSUPPORTED", "file is inside the thumbnail cache", path)
+        return
+    uri = thumb_uri(src)
+    mtime = int(st.st_mtime)
+    name = hashlib.md5(uri.encode("ascii")).hexdigest() + ".png"
+    found = find_thumb(root, name, uri, mtime, bucket)
+    if not found:
+        command, mime = thumbnailer_for(os.path.basename(path))
+        if not command:
+            send_error(req_id, "EUNSUPPORTED", "no thumbnailer for this file type", path)
+            return
+        if failed_before(root, name, uri, mtime):
+            send_error(req_id, "EUNSUPPORTED", "thumbnailer failed on this file before", path)
+            return
+        with THUMB_LOCKS_LOCK:
+            lock = THUMB_LOCKS.setdefault(name + bucket, threading.Lock())
+        with lock:
+            found = find_thumb(root, name, uri, mtime, bucket)
+            if not found:
+                if not acquire_thumb_worker(cancel_event):
+                    send_error(req_id, "ECANCELED", "cancelled")
+                    return
+                try:
+                    status = generate_thumb(root, name, src, uri, st, bucket, command, mime, cancel_event)
+                except OSError as e:
+                    send_error(req_id, errno_code(e), e.strerror or str(e), path)
+                    return
+                finally:
+                    THUMB_WORKERS.release()
+                if status == "cancelled":
+                    send_error(req_id, "ECANCELED", "cancelled")
+                    return
+                if status == "failed":
+                    try:
+                        marker = os.path.join(root, "fail", "omafile-" + VERSION, name)
+                        write_png(marker, blank_png(), {"Thumb::URI": uri, "Thumb::MTime": str(mtime),
+                                                        "Software": "Omafile " + VERSION})
+                    except OSError:
+                        pass
+                if status != "ok":
+                    send_error(req_id, "EUNSUPPORTED", "thumbnailer " + status, path)
+                    return
+                found = os.path.join(root, bucket, name)
+    emit({"id": req_id, "t": "thumb", "thumb": found})
+    send_done(req_id)
+
+def op_thumbtypes(req):
+    req_id = req["id"]
+    tables = thumb_tables()
+    commands = tables["commands"]
+    aliases = tables["aliases"]
+    exts = sorted(ext for ext, mime in tables["globs"].items()
+                  if "." not in ext and aliases.get(mime, mime) in commands)
+    emit({"id": req_id, "t": "thumbtypes", "exts": exts})
+    send_done(req_id)
+
 def op_freespace(req):
     req_id = req["id"]
     path = req.get("path")
@@ -2200,6 +2632,7 @@ CANCELLABLE_OPS = {
     "recent": op_recent,
     "setdefaultfm": op_setdefaultfm,
     "unmounturi": op_unmounturi,
+    "thumb": op_thumb,
 }
 
 SIMPLE_OPS = {
@@ -2209,6 +2642,7 @@ SIMPLE_OPS = {
     "samedev": op_samedev,
     "stat": op_stat,
     "peek": op_peek,
+    "thumbtypes": op_thumbtypes,
     "trash": op_trash,
     "delete": op_delete,
     "restore": op_restore,

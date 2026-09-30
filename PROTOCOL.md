@@ -24,7 +24,7 @@ A response is one JSON object per line with `id` and `t` (type):
 ```
 
 Response types: `entries`, `done`, `error`, `progress`, `conflict`, `changed`, `hit`,
-`stat`, `du`, `space`, `drives`, `dirs`, `trash`.
+`stat`, `du`, `space`, `drives`, `dirs`, `trash`, `thumb`, `thumbtypes`.
 
 A streaming operation emits zero or more intermediate responses and exactly one
 terminal response, which is either `done` or `error`. A non-streaming operation emits
@@ -250,6 +250,37 @@ Replies `{"t": "peek", "text": S, "binary": B, "truncated": T, "size": N}` then 
 Reads at most `limit` bytes, capped at 256 KB, for the preview. A file with a NUL byte
 in its first 8 KB, or one that is mostly not UTF-8, comes back with `binary: true` and
 empty `text`. A directory fails with `EISDIR`.
+
+### thumb
+
+```
+{"id": N, "op": "thumb", "path": "/home/me/Videos/clip.mp4", "size": "large"}
+```
+
+Replies `{"t": "thumb", "thumb": "/home/me/.cache/thumbnails/large/<md5>.png"}` then
+`done`. Cancellable. `size` is one of `large` (256 px, the default), `x-large` (512) or
+`xx-large` (1024). The cache follows the freedesktop Thumbnail Managing Standard, so
+thumbnails made by GNOME Files and other file managers are reused and theirs reuse ours.
+A cached thumbnail counts only when its `Thumb::URI` and `Thumb::MTime` match the file;
+the requested size and every larger one are tried.
+
+On a miss the helper runs the system thumbnailer registered for the file's MIME type in
+`thumbnailers/*.thumbnailer` under `$XDG_DATA_HOME` and `$XDG_DATA_DIRS`, such as
+ffmpegthumbnailer for video or evince-thumbnailer for PDF. At most two run at once, each
+at a lower priority and for at most 20 seconds, never through a shell. A thumbnailer
+that fails leaves a marker in `fail/omafile-<version>/`, and a failure recorded there by
+any app is not retried until the file changes. Files without a thumbnailer, earlier
+failures and files inside the thumbnail cache fail with `EUNSUPPORTED`. A relative path
+fails with `EINVAL`.
+
+### thumbtypes
+
+```
+{"id": N, "op": "thumbtypes"}
+```
+
+Replies `{"t": "thumbtypes", "exts": ["avi", "mkv", "mp4", "pdf", ...]}` then `done`:
+the lowercase file extensions some installed thumbnailer can handle.
 
 ### freespace
 

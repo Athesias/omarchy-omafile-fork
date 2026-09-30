@@ -3067,8 +3067,8 @@ Item {
         description: "Files and folders whose name starts with a dot" },
       { key: "sortDirsFirst", label: "Folders first",
         description: "List folders above files whatever the sort order" },
-      { key: "thumbnails", label: "Image previews",
-        description: "Draw the picture instead of a generic icon" }
+      { key: "thumbnails", label: "Previews and thumbnails",
+        description: "Show images, video frames and document pages instead of a generic icon" }
     ]
   }
 

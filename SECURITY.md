@@ -23,6 +23,7 @@ Only the latest release on `main` receives fixes.
 | D-Bus service file | `~/.local/share/dbus-1/services/org.freedesktop.FileManager1.service` | Only while Default file manager is on. Overrides the system file so Show in folder reaches Omafile |
 | Default handler | `xdg-mime` for `inode/directory` | Only while Default file manager is on. Turning it off restores the previous handler |
 | Clipboard | `wl-copy`, `wl-paste` | Written when you choose Copy path, or copy or cut files. Read when you paste |
+| Thumbnails | `~/.cache/thumbnails` (or `$XDG_CACHE_HOME/thumbnails`) | Shared PNG cache, including source URIs and timestamps; may remain after source files are moved or deleted |
 
 ## Processes Omafile runs
 
@@ -30,6 +31,7 @@ Only the latest release on `main` receives fixes.
 | --- | --- |
 | `bin/omafile-helper` | Always. One long lived Python process that does every filesystem operation |
 | `bin/omafile-filemanager1` | Only while Default file manager is on. Started by D-Bus when another app asks to show a file, exits after two idle minutes |
+| System thumbnailers | Automatically while browsing with thumbnails enabled. Root-owned definitions in `/usr/share/thumbnailers` and `/usr/local/share/thumbnailers` only; no user or XDG-supplied definitions |
 | `lsblk`, `findmnt` | Listing drives, every 15 seconds while the shell runs |
 | `gio open` | Opening a file with its default application |
 | `gio mount` | Connecting to or disconnecting from a network server |
@@ -39,7 +41,9 @@ Only the latest release on `main` receives fixes.
 | `wl-copy`, `wl-paste` | Only when you choose Copy path, or copy, cut or paste files |
 | `xdg-terminal-exec`, `omarchy-launch-editor` | Only when you choose Open in terminal or Open in editor |
 
-Every one of these is spawned as a fixed argument list. No command Omafile runs is ever assembled into a shell string, so a file name cannot become part of a command.
+Helper tools use argument lists. Thumbnailer arguments come from trusted system `.thumbnailer` `Exec` definitions, parsed without a shell; file paths and URIs remain individual argument values. Executables resolve through `trusted_program` and launch with `trusted_env`, ignoring user `PATH` entries and injected environment variables. Thumbnailer definitions and their parent directories must be root owned, not symlinks, and not writable by group or others. Thumbnailers run unsandboxed with your permissions, so enable previews only for files you trust the installed decoders to handle.
+
+A configured terminal command is deliberately interpreted by a shell. The folder path is passed separately as an argument.
 
 ## Owning org.freedesktop.FileManager1
 

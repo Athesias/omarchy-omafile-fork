@@ -1,3 +1,4 @@
+import hashlib
 import importlib.machinery
 import json
 import os
@@ -10,16 +11,18 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.parse
 
 HELPER_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "omafile-helper")
 
 class Helper:
-    def __init__(self, env=None):
+    def __init__(self, env=None, overrides=None):
         full_env = dict(os.environ)
         if env:
             full_env.update(env)
         self.proc = subprocess.Popen(
-            [sys.executable, HELPER_PATH],
+            [sys.executable, os.path.join(os.path.dirname(__file__), "helper_runner.py"),
+             json.dumps(overrides or {})],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", bufsize=1, env=full_env,
         )
@@ -262,6 +265,153 @@ class PeekTests(HelperTestCase):
     def test_peek_directory_errors(self):
         msgs = self.peek(self.root)
         self.assertEqual([m for m in msgs if m["t"] == "error"][0]["code"], "EISDIR")
+
+FAKE_THUMBNAILER = """#!/usr/bin/env python3
+import struct, sys, zlib
+with open(sys.argv[3], "a") as log:
+    log.write(sys.argv[1] + "\\n")
+if sys.argv[4] == "fail":
+    sys.exit(1)
+if sys.argv[4] == "slow":
+    import time
+    time.sleep(30)
+def chunk(kind, body):
+    return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xffffffff)
+data = b"\\x89PNG\\r\\n\\x1a\\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+data += chunk(b"IDAT", zlib.compress(b"\\x00\\x00\\x00\\x00\\x00")) + chunk(b"IEND", b"")
+with open(sys.argv[2], "wb") as out:
+    out.write(data)
+"""
+
+def png_meta(path):
+    with open(path, "rb") as f:
+        data = f.read()[8:]
+    meta = {}
+    while data:
+        length = int.from_bytes(data[:4], "big")
+        kind = data[4:8]
+        body = data[8:8 + length]
+        if kind == b"tEXt":
+            key, value = body.split(b"\0", 1)
+            meta[key.decode("latin-1")] = value.decode("latin-1")
+        data = data[12 + length:]
+        if kind == b"IEND":
+            break
+    return meta
+
+class ThumbnailTests(HelperTestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = os.path.join(self.tmp.name, "files")
+        os.makedirs(self.root)
+        self.cache = os.path.join(self.tmp.name, "cache")
+        data = os.path.join(self.tmp.name, "data")
+        os.makedirs(os.path.join(data, "thumbnailers"))
+        self.log = os.path.join(self.tmp.name, "runs.log")
+        script = os.path.join(self.tmp.name, "fake-thumbnailer")
+        with open(script, "w") as f:
+            f.write(FAKE_THUMBNAILER)
+        os.chmod(script, 0o755)
+        for name, mime, mode in (("ok", "video/mp4", "ok"), ("bad", "video/x-msvideo", "fail"),
+                                ("slow", "video/webm", "slow")):
+            with open(os.path.join(data, "thumbnailers", name + ".thumbnailer"), "w") as f:
+                f.write("[Thumbnailer Entry]\nTryExec=%s\nExec=%s %%i %%o %s %s\nMimeType=%s;\n"
+                        % (script, script, self.log, mode, mime))
+        self.helper = Helper(env={"XDG_CACHE_HOME": self.cache, "XDG_DATA_HOME": data,
+                                  "XDG_DATA_DIRS": os.path.join(self.tmp.name, "none")},
+                             overrides={"thumbnailers": os.path.join(data, "thumbnailers"),
+                                        "programs": {"fake-thumbnailer": script}})
+        self._next_id = 1
+
+    def runs(self):
+        try:
+            with open(self.log) as f:
+                return len(f.read().splitlines())
+        except FileNotFoundError:
+            return 0
+
+    def thumb(self, path, size="large"):
+        return self.helper.call({"id": self.next_id(), "op": "thumb", "path": path, "size": size})
+
+    def make(self, name):
+        target = self.path(name)
+        with open(target, "wb") as f:
+            f.write(b"not really a video")
+        return target
+
+    def uri(self, path):
+        return "file://" + urllib.parse.quote(path, safe="/!$&'()*+,;=:@")
+
+    def test_thumbtypes_lists_supported_extensions(self):
+        msgs = self.helper.call({"id": self.next_id(), "op": "thumbtypes"})
+        exts = [m for m in msgs if m["t"] == "thumbtypes"][0]["exts"]
+        self.assertIn("mp4", exts)
+        self.assertIn("avi", exts)
+        self.assertNotIn("txt", exts)
+
+    def test_generates_once_and_caches(self):
+        target = self.make("my clip #1.mp4")
+        msgs = self.thumb(target)
+        self.assertEqual(msgs[-1]["t"], "done", msgs)
+        out = [m for m in msgs if m["t"] == "thumb"][0]["thumb"]
+        uri = self.uri(target)
+        self.assertEqual(out, os.path.join(self.cache, "thumbnails", "large",
+                                           hashlib.md5(uri.encode()).hexdigest() + ".png"))
+        meta = png_meta(out)
+        self.assertEqual(meta["Thumb::URI"], uri)
+        self.assertIn("%20clip%20%231.mp4", uri)
+        self.assertEqual(meta["Thumb::MTime"], str(int(os.stat(target).st_mtime)))
+        self.assertEqual(stat.S_IMODE(os.stat(out).st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(os.stat(os.path.join(self.cache, "thumbnails")).st_mode), 0o700)
+        self.assertEqual([m for m in self.thumb(target) if m["t"] == "thumb"][0]["thumb"], out)
+        self.assertEqual(self.runs(), 1)
+
+    def test_reuses_larger_thumbnail_from_other_apps(self):
+        target = self.make("clip.mp4")
+        first = [m for m in self.thumb(target, "x-large") if m["t"] == "thumb"][0]["thumb"]
+        self.assertIn("/x-large/", first)
+        again = [m for m in self.thumb(target, "large") if m["t"] == "thumb"][0]["thumb"]
+        self.assertEqual(again, first)
+        self.assertEqual(self.runs(), 1)
+
+    def test_changed_file_is_thumbnailed_again(self):
+        target = self.make("clip.mp4")
+        self.thumb(target)
+        os.utime(target, (1000000000, 1000000000))
+        out = [m for m in self.thumb(target) if m["t"] == "thumb"][0]["thumb"]
+        self.assertEqual(png_meta(out)["Thumb::MTime"], "1000000000")
+        self.assertEqual(self.runs(), 2)
+
+    def test_failure_is_remembered(self):
+        target = self.make("broken.avi")
+        msgs = self.thumb(target)
+        self.assertEqual(msgs[-1]["code"], "EUNSUPPORTED")
+        self.assertEqual(self.thumb(target)[-1]["code"], "EUNSUPPORTED")
+        self.assertEqual(self.runs(), 1)
+        fail_dir = os.path.join(self.cache, "thumbnails", "fail")
+        self.assertEqual(len(os.listdir(fail_dir)), 1)
+
+    def test_unknown_type_is_unsupported(self):
+        target = self.make("notes.xyz123")
+        self.assertEqual(self.thumb(target)[-1]["code"], "EUNSUPPORTED")
+        self.assertEqual(self.runs(), 0)
+
+    def test_cancel_stops_the_thumbnailer(self):
+        target = self.make("long.webm")
+        req_id = self.next_id()
+        self.helper.send({"id": req_id, "op": "thumb", "path": target, "size": "large"})
+        deadline = time.time() + 5
+        while self.runs() == 0 and time.time() < deadline:
+            time.sleep(0.05)
+        self.helper.send({"id": self.next_id(), "op": "cancel", "target": req_id})
+        start = time.time()
+        msgs = self.helper.collect_until(req_id, timeout=5)
+        self.assertEqual(msgs[-1]["code"], "ECANCELED")
+        self.assertLess(time.time() - start, 3)
+        self.assertFalse(os.path.exists(os.path.join(self.cache, "thumbnails", "fail")))
+
+    def test_relative_path_is_rejected(self):
+        self.assertEqual(self.thumb("clip.mp4")[-1]["code"], "EINVAL")
 
 class SymlinkTests(HelperTestCase):
     def test_symlink_kinds(self):

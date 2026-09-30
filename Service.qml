@@ -158,6 +158,7 @@ Item {
   function handleHelperExit() {
     helperReady = false
     _pending = ({})
+    _thumbWaiting = ({})
     if (helperRestarts < 8) {
       helperRestarts++
       restartTimer.restart()
@@ -256,6 +257,65 @@ Item {
       onDone: function () { if (onDone && result) onDone(result) },
       onError: function (m) { if (onError) onError(m) }
     })
+  }
+
+  property var thumbExts: ({})
+  property var _thumbCache: ({})
+  property var _thumbWaiting: ({})
+
+  function refreshThumbTypes() {
+    request({ op: "thumbtypes" }, {
+      onData: function (m) {
+        if (m.t !== "thumbtypes") return
+        var next = {}
+        var list = m.exts || []
+        for (var i = 0; i < list.length; i++) next[String(list[i])] = true
+        root.thumbExts = next
+      }
+    })
+  }
+
+  function thumbnailFor(path, mtime, bucket, onReady) {
+    var key = bucket + "|" + mtime + "|" + path
+    if (_thumbCache[key] !== undefined) {
+      onReady(_thumbCache[key])
+      return null
+    }
+    var ticket = { key: key, onReady: onReady, released: false }
+    var waiting = _thumbWaiting[key]
+    if (waiting) {
+      waiting.tickets.push(ticket)
+      return ticket
+    }
+    waiting = { tickets: [ticket], result: "", id: 0 }
+    _thumbWaiting[key] = waiting
+    waiting.id = request({ op: "thumb", path: path, size: bucket }, {
+      onData: function (m) { if (m.t === "thumb") waiting.result = String(m.thumb || "") },
+      onDone: function () { root.finishThumbnail(key, waiting.result, true) },
+      onError: function (m) { root.finishThumbnail(key, "", m.code === "EUNSUPPORTED") }
+    })
+    return ticket
+  }
+
+  function finishThumbnail(key, result, remember) {
+    var waiting = _thumbWaiting[key]
+    if (!waiting) return
+    delete _thumbWaiting[key]
+    if (remember) _thumbCache[key] = result
+    for (var i = 0; i < waiting.tickets.length; i++) {
+      var ticket = waiting.tickets[i]
+      if (!ticket.released) ticket.onReady(result)
+    }
+  }
+
+  function releaseThumbnail(ticket) {
+    if (!ticket || ticket.released) return
+    ticket.released = true
+    var waiting = _thumbWaiting[ticket.key]
+    if (!waiting) return
+    for (var i = 0; i < waiting.tickets.length; i++) if (!waiting.tickets[i].released) return
+    delete _thumbWaiting[ticket.key]
+    cancel(waiting.id)
   }
 
   function diskUsage(path, onUpdate, onDone) {
@@ -932,6 +992,7 @@ Item {
       refreshDiscovered()
       refreshDefaultHandler()
       refreshFilePicker()
+      refreshThumbTypes()
     })
   }
 

@@ -83,6 +83,19 @@ ShellRoot {
         }
       }
 
+      function test_3a_thumbnailRequests() {
+        waitRows()
+        browser.setView("grid")
+        waitForRendering(browser)
+        var call = mock.called("thumbnailFor")
+        verify(call !== null, "grid asks for a generated thumbnail")
+        compare(call.args[0], "/tmp/alpha.yml")
+        compare(call.args[2], "large")
+        for (var i = 0; i < mock.calls.length; i++)
+          if (mock.calls[i].name === "thumbnailFor") verify(mock.calls[i].args[0] !== "/tmp/beta.png", "images load directly")
+        browser.setView("list")
+      }
+
       function test_3b_zoomAndMenus() {
         waitRows()
         browser.setViewScale(1)

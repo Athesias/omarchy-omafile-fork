@@ -137,7 +137,7 @@
       {
         "key": "thumbnails",
         "type": "boolean",
-        "label": "Show image previews in grid view",
+        "label": "Show image previews and thumbnails for videos and documents",
         "defaultValue": true
       },
       {
