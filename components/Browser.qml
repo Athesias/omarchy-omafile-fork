@@ -128,9 +128,20 @@ Item {
     activeSide = side
     rememberSession()
   }
+  property var closedTabs: []
+
   function closeTab(side, index) {
+    storeCurrentTab(side)
     var list = tabsFor(side).slice()
-    if (list.length <= 1) return
+    if (list.length <= 1) {
+      if (split) closePaneSide(side)
+      else requestClose()
+      return
+    }
+    var gone = closedTabs.slice()
+    gone.push({ side: side, index: index, tab: list[index] })
+    if (gone.length > 20) gone.shift()
+    closedTabs = gone
     list.splice(index, 1)
     var idx = activeIndexFor(side)
     if (idx >= list.length) idx = list.length - 1
@@ -140,6 +151,57 @@ Item {
     applyTab(side, list[idx])
     rememberSession()
   }
+  function restoreClosedTab() {
+    if (closedTabs.length === 0) { statusText = "No closed tabs"; return }
+    var gone = closedTabs.slice()
+    var last = gone.pop()
+    closedTabs = gone
+    var side = last.side === 1 && split ? 1 : 0
+    storeCurrentTab(side)
+    var list = tabsFor(side).slice()
+    var at = Math.max(0, Math.min(list.length, Number(last.index) || 0))
+    list.splice(at, 0, last.tab)
+    setTabs(side, list)
+    setActiveIndex(side, at)
+    applyTab(side, list[at])
+    activeSide = side
+    rememberSession()
+  }
+
+  function jumpToTab(index) {
+    var list = tabsFor(activeSide)
+    if (index < 0 || index >= list.length) return
+    selectTab(activeSide, index)
+  }
+
+  function moveTab(delta) {
+    var side = activeSide
+    storeCurrentTab(side)
+    var list = tabsFor(side).slice()
+    var from = activeIndexFor(side)
+    var to = from + delta
+    if (to < 0 || to >= list.length) return
+    var tab = list.splice(from, 1)[0]
+    list.splice(to, 0, tab)
+    setTabs(side, list)
+    setActiveIndex(side, to)
+    rememberSession()
+  }
+
+  function closePaneSide(side) {
+    if (side === 0) {
+      storeCurrentTab(1)
+      tabsA = tabsB
+      activeA = activeB
+      applyTab(0, tabsA[activeA])
+    }
+    tabsB = []
+    activeB = 0
+    split = false
+    activeSide = 0
+    rememberSession()
+  }
+
   function toggleSplit() {
     split = !split
     if (split && tabsB.length === 0) {
@@ -872,6 +934,36 @@ Item {
     if (split) paneB.refresh()
   }
 
+  function openSelectedItems() {
+    var p = activePane()
+    var sel = p.selectedEntries
+    if (sel.length <= 1 || picking) { p.activateCursor(); return }
+    var dirs = []
+    for (var i = 0; i < sel.length; i++) {
+      if (sel[i].isDir && !sel[i].isBroken) dirs.push(sel[i].path)
+      else if (service) service.openExternally(sel[i].path)
+    }
+    for (var d = 0; d < dirs.length; d++) newTab(activeSide, dirs[d])
+    afterLaunch()
+  }
+
+  function openFolderMenu() {
+    menuKind = ""
+    menuEntry = null
+    menuActions = contextActions(null)
+    menuCursor = firstMenuIndex()
+    menuX = (sidebarVisible ? sidebar.width : 0) + Style.space(60) + (activeSide === 1 ? sideA.width : 0)
+    menuY = toolbar.height + Style.space(20)
+    menuOpen = true
+  }
+
+  function searchEverywhere() {
+    var p = activePane()
+    if (p.path !== home) p.navigate(home)
+    enterFind()
+    statusText = "Searching your home folder"
+  }
+
   function openMenuAtCursor() {
     var p = activePane()
     var entry = p.cursorEntry()
@@ -1042,7 +1134,7 @@ Item {
       if (p.filter !== "" || pathBar.filterOpen) { pathBar.closeFilter(); return true }
       if (p.selectedCount > 0) { p.clearSelection(); return true }
       if (picking) { cancelPick(); return true }
-      requestClose()
+      if (popupMode) requestClose()
       return true
     }
 
@@ -1058,6 +1150,19 @@ Item {
       openMenuAtCursor()
       return true
     }
+    if (event.key === Qt.Key_F10) { openFolderMenu(); return true }
+    if (event.key === Qt.Key_F9) { sidebarVisible = !sidebarVisible; rememberSession(); return true }
+
+    if (ctrl && shiftKey && event.key === Qt.Key_T) { restoreClosedTab(); return true }
+    if (ctrl && shiftKey && event.key === Qt.Key_F) { searchEverywhere(); return true }
+    if (ctrl && shiftKey && event.key === Qt.Key_PageUp) { moveTab(-1); return true }
+    if (ctrl && shiftKey && event.key === Qt.Key_PageDown) { moveTab(1); return true }
+    if (ctrl && (event.key === Qt.Key_Question || (shiftKey && event.key === Qt.Key_Slash))) {
+      showDialog("shortcuts", "Keyboard shortcuts", "", null)
+      return true
+    }
+    if (alt && !ctrl && event.key >= Qt.Key_1 && event.key <= Qt.Key_9) { jumpToTab(event.key - Qt.Key_1); return true }
+    if (alt && event.key === Qt.Key_Down) { openSelectedItems(); return true }
 
     if (ctrl && shiftKey && event.key === Qt.Key_N) { showDialog("newfolder", "New folder", "untitled folder", null); return true }
     if (ctrl && shiftKey && event.key === Qt.Key_C) { transferToOtherPane("copy"); return true }
@@ -1066,6 +1171,7 @@ Item {
     if (ctrl && shiftKey && event.key === Qt.Key_Z) { doRedo(); return true }
 
     if (ctrl && event.key === Qt.Key_N) { showDialog("newfile", "New file", "untitled", null); return true }
+    if (ctrl && event.key === Qt.Key_O) { openSelectedItems(); return true }
     if (ctrl && event.key === Qt.Key_T) { newTab(activeSide, null); return true }
     if (ctrl && event.key === Qt.Key_Period) { if (!p.virtualView) service.openTerminal(p.path); return true }
     if (ctrl && event.key === Qt.Key_W) { closeTab(activeSide, activeIndexFor(activeSide)); return true }
@@ -1116,7 +1222,7 @@ Item {
     if (event.key === Qt.Key_Slash) { pathBar.beginEditWith("/"); return true }
     if (event.key === Qt.Key_AsciiTilde) { pathBar.beginEditWith("~"); return true }
 
-    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { p.activateCursor(); return true }
+    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { openSelectedItems(); return true }
     if (event.key === Qt.Key_Space) { togglePreview(); return true }
     if (event.key === Qt.Key_Down) { p.moveCursor(p.columnsPerRow(), shiftKey); return true }
     if (event.key === Qt.Key_Up) { p.moveCursor(-p.columnsPerRow(), shiftKey); return true }
@@ -1385,7 +1491,7 @@ Item {
               activeIndex: root.activeA
               visible: root.tabsA.length > 1 || root.split
               onSelectTab: function (index) { root.selectTab(0, index) }
-              onCloseTab: function (index) { root.closeTab(0, index) }
+              onCloseTab: function (index) { if (root.tabsA.length > 1) root.closeTab(0, index) }
               onAddTab: root.newTab(0, null)
             }
 
@@ -1403,6 +1509,7 @@ Item {
                 keyCatcher.forceActiveFocus()
               }
               onOpenRequested: function (entry) { root.handleOpenRequest(entry) }
+              onNewTabRequested: function (path) { root.newTab(0, path) }
               onNavigated: function (p) { root.rememberSession() }
               onContextRequested: function (entry, x, y) {
                 root.menuKind = ""
@@ -1430,7 +1537,7 @@ Item {
               activeIndex: root.activeB
               visible: root.tabsB.length > 1 || root.split
               onSelectTab: function (index) { root.selectTab(1, index) }
-              onCloseTab: function (index) { root.closeTab(1, index) }
+              onCloseTab: function (index) { if (root.tabsB.length > 1) root.closeTab(1, index) }
               onAddTab: root.newTab(1, null)
             }
 
@@ -1448,6 +1555,7 @@ Item {
                 keyCatcher.forceActiveFocus()
               }
               onOpenRequested: function (entry) { root.handleOpenRequest(entry) }
+              onNewTabRequested: function (path) { root.newTab(1, path) }
               onNavigated: function (p) { root.rememberSession() }
               onContextRequested: function (entry, x, y) {
                 root.menuKind = ""
@@ -2692,7 +2800,7 @@ Item {
   function shortcutRows() {
     return [
       { section: "Navigation" },
-      { keys: "Enter", label: "Open the selected item" },
+      { keys: "Enter / Ctrl+O / Alt+Down", label: "Open the selected items" },
       { keys: "Backspace / Alt+Up", label: "Go to the parent folder" },
       { keys: "Alt+Left / Alt+Right", label: "Back and forward" },
       { keys: "Alt+Home", label: "Go to your home folder" },
@@ -2709,6 +2817,7 @@ Item {
       { keys: "Delete", label: "Remove a bookmark or hide a drive, in the sidebar" },
       { keys: "Escape", label: "Leave the sidebar" },
       { keys: "Shift+F10 / Menu", label: "Open the context menu on the current item" },
+      { keys: "F10", label: "Open the menu for this folder" },
       { section: "Selection" },
       { keys: "Ctrl+Click", label: "Add one item to the selection" },
       { keys: "Ctrl+Space", label: "Add the item under the cursor" },
@@ -2727,8 +2836,13 @@ Item {
       { keys: "Ctrl+I / Alt+Enter", label: "Properties" },
       { keys: "Ctrl+D", label: "Bookmark this folder" },
       { section: "Panes and tabs" },
-      { keys: "Ctrl+T / Ctrl+W", label: "New tab and close tab" },
+      { keys: "Ctrl+T", label: "New tab" },
+      { keys: "Ctrl+W", label: "Close the tab, or the window when it is the last one" },
+      { keys: "Ctrl+Shift+T", label: "Reopen the last closed tab" },
       { keys: "Ctrl+PageUp / PageDown", label: "Previous and next tab" },
+      { keys: "Ctrl+Shift+PageUp / PageDown", label: "Move the tab left or right" },
+      { keys: "Alt+1 to Alt+9", label: "Go to that tab" },
+      { keys: "Middle click", label: "Open a folder in a new tab" },
       { keys: "Ctrl+Enter", label: "Open the folder under the cursor in a new tab" },
       { keys: "F6", label: "Split into two panes" },
       { keys: "Tab", label: "Switch the active pane, while split" },
@@ -2739,11 +2853,12 @@ Item {
       { keys: "Space", label: "Preview the item under the cursor" },
       { keys: "Mouse back / forward", label: "Back and forward" },
       { keys: "Ctrl+H", label: "Show hidden files" },
-      { keys: "Ctrl+B", label: "Show or hide the sidebar" },
+      { keys: "F9 / Ctrl+B", label: "Show or hide the sidebar" },
       { keys: "Ctrl+F, or just type", label: "Search in this folder" },
+      { keys: "Ctrl+Shift+F", label: "Search your whole home folder" },
       { keys: "Ctrl+Comma", label: "Settings" },
-      { keys: "F1", label: "This list" },
-      { keys: "Ctrl+Q / Escape", label: "Close the window" },
+      { keys: "F1 / Ctrl+?", label: "This list" },
+      { keys: "Ctrl+Q", label: "Close the window" },
       { section: "When a file already exists" },
       { keys: "R / K / S / A", label: "Replace, keep both, skip, skip all" }
     ]
