@@ -792,6 +792,27 @@ class TrashTests(HelperTestCase):
         self.assertNotIn("t1.txt", after_names)
         self.assertNotIn("t2.txt", after_names)
 
+    def test_emptytrash_only_touches_listed_mounts(self):
+        volume = tempfile.mkdtemp()
+        try:
+            trash = os.path.join(volume, ".Trash-%d" % os.getuid())
+            os.makedirs(os.path.join(trash, "files"))
+            os.makedirs(os.path.join(trash, "info"))
+            victim = os.path.join(trash, "files", "old.txt")
+            with open(victim, "w") as f:
+                f.write("x")
+            self.helper.call({"id": self.next_id(), "op": "emptytrash"})
+            self.assertTrue(os.path.exists(victim), "unlisted drives are never emptied")
+            mounts = os.path.join(volume, "mounts")
+            with open(mounts, "w") as f:
+                f.write("tmpfs %s tmpfs rw 0 0\n" % volume)
+            self.helper.close()
+            self.helper = Helper(env={"XDG_DATA_HOME": self.data_home}, overrides={"mounts_file": mounts})
+            self.helper.call({"id": self.next_id(), "op": "emptytrash"})
+            self.assertFalse(os.path.exists(victim), "listed drives are emptied")
+        finally:
+            shutil.rmtree(volume, ignore_errors=True)
+
 class TrashInfoDirsTests(HelperTestCase):
     def test_trashinfo_reports_the_directories_to_watch(self):
         req = self.next_id()
