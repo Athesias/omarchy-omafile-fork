@@ -52,15 +52,15 @@ ShellRoot {
 
       function test_2_sortMenu() {
         waitRows()
-        mouseClick(findChild(browser, "sortButton"))
+        mouseClick(findChild(browser, "viewButton"))
         verify(browser.menuOpen)
-        compare(browser.menuKind, "sort")
+        compare(browser.menuKind, "view")
         menuItem("Z to A")
         verify(!browser.menuOpen)
         compare(pane().sortBy, "name")
         compare(pane().descending, true)
         browser.setView("grid")
-        mouseClick(findChild(browser, "sortButton"))
+        mouseClick(findChild(browser, "viewButton"))
         menuItem("Last modified")
         compare(pane().sortBy, "modified")
         compare(pane().descending, true)
@@ -71,7 +71,7 @@ ShellRoot {
 
       function test_3_viewMenu() {
         waitRows()
-        var modes = [["Compact", "compact"], ["Gallery", "gallery"], ["Grid", "grid"], ["List", "list"]]
+        var modes = [["Compact", "compact"], ["Grid", "grid"], ["List", "list"]]
         for (var i = 0; i < modes.length; i++) {
           mouseClick(findChild(browser, "viewButton"))
           compare(browser.menuKind, "view")
@@ -81,6 +81,43 @@ ShellRoot {
           mouseClick(pane(), 60, pane().view === "list" ? 40 : 20)
           compare(pane().selectedCount, 1, "click selects in " + modes[i][1])
         }
+      }
+
+      function test_3b_zoomAndMenus() {
+        waitRows()
+        browser.setViewScale(1)
+        mouseClick(findChild(browser, "viewButton"))
+        compare(browser.menuKind, "view")
+        waitForRendering(browser)
+        mouseClick(findChild(browser, "zoom-in"))
+        verify(browser.menuOpen, "zoom keeps the menu open")
+        compare(browser.viewScale, 1.1)
+        mouseClick(findChild(browser, "zoom-in"))
+        compare(browser.viewScale, 1.2)
+        mouseClick(findChild(browser, "zoom-out"))
+        compare(browser.viewScale, 1.1)
+        compare(pane().viewScale, 1.1)
+        mouseClick(findChild(browser, "zoom-reset"))
+        compare(browser.viewScale, 1)
+        var hidden = pane().showHidden
+        menuItem("Show hidden files")
+        compare(pane().showHidden, !hidden)
+        verify(!browser.menuOpen)
+        pane().showHidden = hidden
+        mouseWheel(pane(), 200, 200, 0, 120, Qt.NoButton, Qt.ControlModifier)
+        compare(browser.viewScale, 1.1)
+        mouseWheel(pane(), 200, 200, 0, -240, Qt.NoButton, Qt.ControlModifier)
+        compare(browser.viewScale, 0.9)
+        for (var i = 0; i < 30; i++) mouseWheel(pane(), 200, 200, 0, 120, Qt.NoButton, Qt.ControlModifier)
+        compare(browser.viewScale, 3)
+        for (var j = 0; j < 30; j++) mouseWheel(pane(), 200, 200, 0, -120, Qt.NoButton, Qt.ControlModifier)
+        compare(browser.viewScale, 0.5)
+        browser.setViewScale(1)
+        mouseClick(findChild(browser, "mainMenuButton"))
+        compare(browser.menuKind, "main")
+        menuItem("Keyboard shortcuts")
+        compare(browser.dialogMode, "shortcuts")
+        browser.closeDialog()
       }
 
       function test_4_mouseBackForward() {

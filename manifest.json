@@ -95,7 +95,7 @@
       {
         "key": "defaultView",
         "type": "string",
-        "label": "Default view: list, compact, grid or gallery",
+        "label": "Default view: list, compact or grid",
         "defaultValue": "list"
       },
       {

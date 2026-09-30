@@ -99,7 +99,7 @@ Item {
   function applyTab(side, tab) {
     var p = paneFor(side)
     p.ready = false
-    p.view = tab.view || "list"
+    p.view = Model.normalizeViewMode(tab.view)
     p.sortBy = tab.sortBy || "name"
     p.descending = tab.descending === true
     p.filter = tab.filter || ""
@@ -558,11 +558,13 @@ Item {
   function clampViewScale(value) {
     var n = Number(value)
     if (!isFinite(n) || n <= 0) return 1
-    return Math.max(0.8, Math.min(2.5, Math.round(n * 20) / 20))
+    return Math.max(minViewScale, Math.min(maxViewScale, Math.round(n * 20) / 20))
   }
+  readonly property real minViewScale: 0.5
+  readonly property real maxViewScale: 3
   function setViewScale(value) {
     var next = clampViewScale(value)
-    applySettingNow("viewScale", next)
+    if (next !== viewScale) applySettingNow("viewScale", next)
     statusText = "View size " + Math.round(next * 100) + "%"
   }
   function nudgeViewScale(delta) {
@@ -687,6 +689,10 @@ Item {
     return items
   }
   function runAction(key) {
+    if (key.indexOf("zoom:") === 0) {
+      runZoom(key.substring(5))
+      return
+    }
     var p = activePane()
     var entry = menuEntry
     menuOpen = false
@@ -711,6 +717,14 @@ Item {
     else if (key === "terminal") service.openTerminal(entry && entry.isDir ? entry.path : p.path)
     else if (key === "claude") service.openClaude(entry && entry.isDir ? entry.path : p.path)
     else if (key === "refresh") p.refresh()
+    else if (key === "togglehidden") { p.showHidden = !p.showHidden; rememberSession() }
+    else if (key === "settings") showDialog("settings", "Settings", "", null)
+    else if (key === "shortcuts") showDialog("shortcuts", "Keyboard shortcuts", "", null)
+  }
+  function runZoom(action) {
+    if (action === "in") nudgeViewScale(0.1)
+    else if (action === "out") nudgeViewScale(-0.1)
+    else setViewScale(1)
   }
   property bool previewOpen: false
   property var previewEntry: null
@@ -869,22 +883,35 @@ Item {
     var p = activePane()
     var items = []
     var check = Icons.actionGlyph("check")
-    if (kind === "sort") {
-      var current = p ? Model.sortPresetKey(p.sortBy, p.descending) : ""
-      for (var i = 0; i < Model.sortPresets.length; i++) {
-        var preset = Model.sortPresets[i]
-        items.push({ key: "sort:" + preset.key, label: preset.label,
-          glyph: preset.key === current ? check : "", disabled: !p || p.virtualView })
-      }
-    } else {
-      var mode = p ? p.view : "list"
-      for (var j = 0; j < Model.viewModes.length; j++) {
-        var view = Model.viewModes[j]
-        items.push({ key: "view:" + view.key, label: view.label,
-          glyph: view.key === mode ? check : Icons.actionGlyph(view.glyph) })
-      }
+    if (kind === "main") {
+      items.push({ key: "settings", label: "Settings", glyph: Icons.actionGlyph("settings"), hint: "Ctrl+," })
+      items.push({ key: "shortcuts", label: "Keyboard shortcuts", glyph: Icons.actionGlyph("keyboard"), hint: "F1" })
+      return items
     }
+    var mode = p ? p.view : "list"
+    var viewHints = { list: "Ctrl+1", grid: "Ctrl+2", compact: "Ctrl+3" }
+    for (var j = 0; j < Model.viewModes.length; j++) {
+      var view = Model.viewModes[j]
+      items.push({ key: "view:" + view.key, label: view.label, hint: viewHints[view.key] || "",
+        glyph: view.key === mode ? check : Icons.actionGlyph(view.glyph) })
+    }
+    items.push({ label: "" })
+    items.push({ key: "zoom:reset", kind: "zoom", label: "Zoom" })
+    items.push({ label: "" })
+    items.push({ kind: "header", label: "Sort by", disabled: true })
+    var current = p ? Model.sortPresetKey(p.sortBy, p.descending) : ""
+    for (var i = 0; i < Model.sortPresets.length; i++) {
+      var preset = Model.sortPresets[i]
+      items.push({ key: "sort:" + preset.key, label: preset.label,
+        glyph: preset.key === current ? check : "", disabled: !p || p.virtualView })
+    }
+    items.push({ label: "" })
+    items.push({ key: "togglehidden", label: "Show hidden files", hint: "Ctrl+H",
+      glyph: p && p.showHidden ? check : Icons.actionGlyph("hidden") })
     return items
+  }
+  function menuWidth() {
+    return Style.space(menuKind === "" ? 200 : 230)
   }
 
   function openToolbarMenu(kind, anchor) {
@@ -897,7 +924,7 @@ Item {
     menuActions = toolbarMenuActions(kind)
     menuCursor = -1
     var pt = anchor.mapToItem(keyCatcher, 0, anchor.height)
-    menuX = pt.x + anchor.width - Style.space(200)
+    menuX = pt.x + anchor.width - menuWidth()
     menuY = pt.y + Style.space(4)
     menuOpen = true
   }
@@ -1060,6 +1087,10 @@ Item {
     if (menuCursor < 0 || menuCursor >= menuActions.length) return
     var item = menuActions[menuCursor]
     if (!item || item.label === "" || item.disabled) return
+    if (item.kind === "zoom") {
+      runAction(item.key)
+      return
+    }
     menuCursor = -1
     runAction(item.key)
     keyCatcher.forceActiveFocus()
@@ -1144,6 +1175,19 @@ Item {
     if (event.key === Qt.Key_Up) { moveMenuCursor(-1); return true }
     if (event.key === Qt.Key_Home) { menuCursor = firstMenuIndex(); return true }
     if (event.key === Qt.Key_End) { menuCursor = lastMenuIndex(); return true }
+    if (menuKind === "view") {
+      var onZoom = menuCursor >= 0 && menuCursor < menuActions.length
+        && menuActions[menuCursor].kind === "zoom"
+      if (event.key === Qt.Key_Plus || event.key === Qt.Key_Equal || (onZoom && event.key === Qt.Key_Right)) {
+        runZoom("in")
+        return true
+      }
+      if (event.key === Qt.Key_Minus || (onZoom && event.key === Qt.Key_Left)) {
+        runZoom("out")
+        return true
+      }
+      if (event.key === Qt.Key_0) { runZoom("reset"); return true }
+    }
     if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
       activateMenuCursor()
       return true
@@ -1243,7 +1287,6 @@ Item {
     if (ctrl && event.key === Qt.Key_1) { setView("list"); return true }
     if (ctrl && event.key === Qt.Key_2) { setView("grid"); return true }
     if (ctrl && event.key === Qt.Key_3) { setView("compact"); return true }
-    if (ctrl && event.key === Qt.Key_4) { setView("gallery"); return true }
     if (ctrl && event.key === Qt.Key_PageDown) { cycleTab(1); return true }
     if (ctrl && event.key === Qt.Key_PageUp) { cycleTab(-1); return true }
     if (ctrl && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) { openCursorInNewTab(); return true }
@@ -1385,35 +1428,13 @@ Item {
           spacing: Style.space(4)
 
           Button {
-            id: sortButton
-            objectName: "sortButton"
-            anchors.verticalCenter: parent.verticalCenter
-            iconText: Icons.actionGlyph("sort")
-            tooltipText: "Sort"
-            selected: root.menuOpen && root.menuKind === "sort"
-            onClicked: root.openToolbarMenu("sort", sortButton)
-          }
-
-          Button {
             id: viewButton
             objectName: "viewButton"
             anchors.verticalCenter: parent.verticalCenter
             iconText: Icons.actionGlyph(root.viewGlyph())
-            tooltipText: "View"
+            tooltipText: "View, zoom and sort"
             selected: root.menuOpen && root.menuKind === "view"
             onClicked: root.openToolbarMenu("view", viewButton)
-          }
-
-          Button {
-            anchors.verticalCenter: parent.verticalCenter
-            iconText: Icons.actionGlyph("hidden")
-            tooltipText: "Show hidden files"
-            selected: root.activePane() ? root.activePane().showHidden : false
-            onClicked: {
-              var p = root.activePane()
-              p.showHidden = !p.showHidden
-              root.rememberSession()
-            }
           }
 
           Button {
@@ -1434,17 +1455,13 @@ Item {
           }
 
           Button {
+            id: mainMenuButton
+            objectName: "mainMenuButton"
             anchors.verticalCenter: parent.verticalCenter
-            iconText: Icons.actionGlyph("settings")
-            tooltipText: "Settings"
-            onClicked: root.showDialog("settings", "Settings", "", null)
-          }
-
-          Button {
-            anchors.verticalCenter: parent.verticalCenter
-            iconText: Icons.actionGlyph("keyboard")
-            tooltipText: "Keyboard shortcuts"
-            onClicked: root.showDialog("shortcuts", "Keyboard shortcuts", "", null)
+            iconText: Icons.actionGlyph("menu")
+            tooltipText: "Menu"
+            selected: root.menuOpen && root.menuKind === "main"
+            onClicked: root.openToolbarMenu("main", mainMenuButton)
           }
         }
 
@@ -1560,6 +1577,7 @@ Item {
               onNewTabRequested: function (path) { root.newTab(0, path) }
               onNavigated: function (p) { root.rememberSession() }
               onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
+              onZoomRequested: function (delta) { root.nudgeViewScale(delta) }
               onContextRequested: function (entry, x, y) {
                 root.menuKind = ""
                 root.menuEntry = entry
@@ -1607,6 +1625,7 @@ Item {
               onNewTabRequested: function (path) { root.newTab(1, path) }
               onNavigated: function (p) { root.rememberSession() }
               onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
+              onZoomRequested: function (delta) { root.nudgeViewScale(delta) }
               onContextRequested: function (entry, x, y) {
                 root.menuKind = ""
                 root.menuEntry = entry
@@ -1790,7 +1809,7 @@ Item {
       visible: root.menuOpen
       x: Math.min(root.menuX, keyCatcher.width - width - Style.space(8))
       y: Math.min(root.menuY, keyCatcher.height - height - Style.space(8))
-      width: Style.space(200)
+      width: root.menuWidth()
       height: menuColumn.implicitHeight + Style.space(8)
       color: Color.menu.background
       border.width: Math.max(1, Style.space(1))
@@ -1807,10 +1826,16 @@ Item {
           model: root.menuOpen ? root.menuActions : []
 
           delegate: Item {
+            id: menuRow
             required property var modelData
             required property int index
+            readonly property bool isHeader: modelData.kind === "header"
+            readonly property bool isZoom: modelData.kind === "zoom"
+            readonly property bool highlighted: !modelData.disabled && !isHeader
+              && (root.menuCursor === index || (itemHover.hovered && !isZoom))
             width: menuColumn.width
-            height: modelData.label === "" ? Style.space(7) : Style.space(24)
+            height: modelData.label === "" ? Style.space(7)
+              : (isHeader ? Style.space(20) : Style.space(24))
 
             Rectangle {
               anchors.centerIn: parent
@@ -1820,24 +1845,37 @@ Item {
               color: Util.alpha(Color.menu.text, 0.15)
             }
 
+            Text {
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(8)
+              anchors.bottom: parent.bottom
+              anchors.bottomMargin: Style.space(2)
+              visible: menuRow.isHeader
+              text: modelData.label
+              color: Util.alpha(Color.menu.text, 0.5)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+
             Rectangle {
               anchors.fill: parent
-              visible: modelData.label !== ""
+              visible: modelData.label !== "" && !menuRow.isHeader
               radius: Style.cornerRadius
-              color: (itemHover.hovered || root.menuCursor === index) && !modelData.disabled
-                ? Color.menu.selectedBackground : "transparent"
+              color: menuRow.highlighted ? Color.menu.selectedBackground : "transparent"
 
               HoverHandler { id: itemHover }
 
               Row {
-                anchors.fill: parent
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: Style.space(8)
-                anchors.rightMargin: Style.space(8)
                 spacing: Style.space(8)
 
                 Text {
                   anchors.verticalCenter: parent.verticalCenter
-                  text: modelData.glyph
+                  width: Style.space(16)
+                  horizontalAlignment: Text.AlignHCenter
+                  text: menuRow.isZoom ? Icons.actionGlyph("search") : (modelData.glyph || "")
                   color: Util.alpha(Color.menu.text, modelData.disabled ? 0.3 : 0.7)
                   font.family: Style.font.family
                   font.pixelSize: Style.font.iconSmall
@@ -1848,17 +1886,71 @@ Item {
                   text: modelData.label
                   color: modelData.disabled
                     ? Util.alpha(Color.menu.text, 0.35)
-                    : ((itemHover.hovered || root.menuCursor === index)
-                      ? Color.menu.selectedText : Color.menu.text)
+                    : (menuRow.highlighted ? Color.menu.selectedText : Color.menu.text)
                   font.family: Style.font.family
                   font.pixelSize: Style.font.bodySmall
                 }
               }
 
+              Text {
+                anchors.right: parent.right
+                anchors.rightMargin: Style.space(8)
+                anchors.verticalCenter: parent.verticalCenter
+                visible: !menuRow.isZoom && !!modelData.hint
+                text: modelData.hint || ""
+                color: Util.alpha(menuRow.highlighted ? Color.menu.selectedText : Color.menu.text, 0.45)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+
               MouseArea {
                 anchors.fill: parent
-                enabled: !modelData.disabled
+                enabled: !modelData.disabled && !menuRow.isZoom
                 onClicked: root.runAction(modelData.key)
+              }
+
+              Row {
+                anchors.right: parent.right
+                anchors.rightMargin: Style.space(4)
+                anchors.verticalCenter: parent.verticalCenter
+                visible: menuRow.isZoom
+                spacing: Style.space(2)
+
+                Repeater {
+                  model: menuRow.isZoom ? [
+                    { action: "out", text: "\u2212", wide: false },
+                    { action: "reset", text: "", wide: true },
+                    { action: "in", text: "+", wide: false }
+                  ] : []
+
+                  delegate: Rectangle {
+                    required property var modelData
+                    readonly property bool atLimit: (modelData.action === "out" && root.viewScale <= root.minViewScale)
+                      || (modelData.action === "in" && root.viewScale >= root.maxViewScale)
+                    objectName: "zoom-" + modelData.action
+                    width: Style.space(modelData.wide ? 44 : 22)
+                    height: Style.space(20)
+                    radius: Style.cornerRadius
+                    color: zoomHover.hovered && !atLimit ? Util.alpha(Color.menu.text, 0.12) : "transparent"
+
+                    HoverHandler { id: zoomHover }
+
+                    Text {
+                      anchors.centerIn: parent
+                      text: modelData.wide ? Math.round(root.viewScale * 100) + "%" : modelData.text
+                      color: Util.alpha(menuRow.highlighted ? Color.menu.selectedText : Color.menu.text,
+                        parent.atLimit ? 0.3 : 1)
+                      font.family: Style.font.family
+                      font.pixelSize: modelData.wide ? Style.font.caption : Style.font.bodySmall
+                    }
+
+                    MouseArea {
+                      anchors.fill: parent
+                      enabled: !parent.atLimit
+                      onClicked: root.runZoom(modelData.action)
+                    }
+                  }
+                }
               }
             }
           }
@@ -2436,8 +2528,7 @@ Item {
                     options: [
                       { label: "List", value: "list" },
                       { label: "Compact", value: "compact" },
-                      { label: "Grid", value: "grid" },
-                      { label: "Gallery", value: "gallery" }
+                      { label: "Grid", value: "grid" }
                     ]
                     onChanged: function (v) { root.applySettingNow("defaultView", v) }
                   }
@@ -2455,7 +2546,7 @@ Item {
 
                   Text {
                     width: parent.width
-                    text: "Currently " + Math.round(root.viewScale * 100) + " percent. Ctrl with plus, minus or zero also works."
+                    text: "Currently " + Math.round(root.viewScale * 100) + " percent. Ctrl with plus, minus, zero or the scroll wheel also works."
                     color: Util.alpha(Color.popups.text, 0.6)
                     font.family: Style.font.family
                     font.pixelSize: Style.font.caption
@@ -2465,8 +2556,8 @@ Item {
                   PanelSlider {
                     width: parent.width
                     value: root.viewScale
-                    minimum: 0.8
-                    maximum: 2.5
+                    minimum: root.minViewScale
+                    maximum: root.maxViewScale
                     step: 0.05
                     onReleased: function (v) { root.setViewScale(v) }
                   }
@@ -2899,8 +2990,9 @@ Item {
       { keys: "Tab", label: "Switch the active pane, while split" },
       { keys: "Ctrl+Shift+C / Ctrl+Shift+M", label: "Copy and move to the other pane" },
       { section: "View" },
-      { keys: "Ctrl+1 / Ctrl+2", label: "List and grid" },
-      { keys: "Ctrl+3 / Ctrl+4", label: "Compact and gallery" },
+      { keys: "Ctrl+1 / Ctrl+2 / Ctrl+3", label: "List, grid and compact" },
+      { keys: "Ctrl+Plus / Ctrl+Minus", label: "Zoom in and out, also Ctrl with the scroll wheel" },
+      { keys: "Ctrl+0", label: "Reset the zoom to 100 percent" },
       { keys: "Space", label: "Preview the item under the cursor" },
       { keys: "Mouse back / forward", label: "Back and forward" },
       { keys: "Ctrl+H", label: "Show hidden files" },

@@ -460,7 +460,8 @@ test('preview kind follows the entry', function () {
   assert.equal(Model.previewKind(Model.decodeEntry(['a.yml', 'f', 1, 0, 0, null], '/tmp')), 'text');
   assert.equal(Model.previewKind(Model.decodeEntry(['d', 'd', 0, 0, 0, null], '/tmp')), 'folder');
   assert.equal(Model.previewKind(null), 'none');
-  assert.equal(Model.isViewMode('gallery'), true);
+  assert.equal(Model.isViewMode('grid'), true);
+  assert.equal(Model.isViewMode('gallery'), false);
   assert.equal(Model.isViewMode('columns'), false);
 });
 
@@ -495,3 +496,10 @@ test('wantsNewWindow is true only for an explicit newWindow flag', () => {
   assert.equal(Model.wantsNewWindow('not json'), false);
   assert.equal(Model.wantsNewWindow('null'), false);
 });
+test('saved gallery views fall back to grid', function () {
+  assert.equal(Model.normalizeViewMode('gallery'), 'grid');
+  assert.equal(Model.normalizeViewMode('compact'), 'compact');
+  assert.equal(Model.normalizeViewMode('nope'), 'list');
+  assert.equal(Model.normalizeViewMode(undefined), 'list');
+});
+

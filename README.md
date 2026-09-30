@@ -6,8 +6,8 @@ A lightweight, fast file manager plugin for Omarchy running in the shell.
 
 * Real resizable window with tabs for multiple locations
 * Dual pane layout with one-key copy and move between panes
-* List, compact, grid and gallery views
-* Sort from the toolbar in any view: A to Z, Z to A, last modified, size or type
+* List, compact and grid views, with zoom from Ctrl+Scroll or the View menu
+* Sort from the View menu in any view: A to Z, Z to A, last modified, size or type
 * Quick preview with Space: images full size, text files such as `.yml` as plain text
 * Mouse back and forward buttons move through folder history
 * Can stand in for the GTK file chooser, so browser uploads and downloads open Omafile
@@ -82,11 +82,13 @@ The magnifier at the end of the address bar filters the folder you are in. Ctrl+
 
 ### Sorting
 
-The sort button in the toolbar sorts by A to Z, Z to A, last modified, first modified, largest, smallest or type, in every view. In list view you can also click Name, Size, Type or Modified. Click the same column again to reverse its order.
+The Sort by section of the View menu sorts by A to Z, Z to A, last modified, first modified, largest, smallest or type, in every view. In list view you can also click Name, Size, Type or Modified. Click the same column again to reverse its order.
 
 ### Views
 
-The view button in the toolbar switches between list, compact, grid and gallery. Compact packs names into columns. Gallery shows large image previews. Ctrl+1 to Ctrl+4 pick them from the keyboard.
+The View button in the toolbar opens one menu for the layout, zoom, sorting and hidden files. It switches between list, compact and grid. Compact packs names into columns. Ctrl+1 to Ctrl+3 pick them from the keyboard.
+
+Zoom scales rows, icons and grid cells from 50 to 300 percent. Use the minus and plus buttons in the View menu, Ctrl with the scroll wheel over a pane, or Ctrl+Plus, Ctrl+Minus and Ctrl+0. Click the percentage to go back to 100 percent. Grid at a high zoom level replaces the old gallery view.
 
 ### Preview
 
@@ -252,8 +254,9 @@ Undo covers trash, rename, move, copy and new file or folder. Undoing a trash pu
 
 | Keys | Action |
 |------|--------|
-| `Ctrl+1` / `Ctrl+2` | List and grid |
-| `Ctrl+3` / `Ctrl+4` | Compact and gallery |
+| `Ctrl+1` / `Ctrl+2` / `Ctrl+3` | List, grid and compact |
+| `Ctrl+Plus` / `Ctrl+Minus`, or `Ctrl` + scroll | Zoom in and out |
+| `Ctrl+0` | Reset the zoom to 100 percent |
 | `Space` | Preview the item under the cursor |
 | `Ctrl+H` | Show hidden files |
 | `F9` / `Ctrl+B` | Show or hide the sidebar |
@@ -295,7 +298,7 @@ Configure these keys through the Omarchy bar widget settings:
 | `sortDirsFirst` | List directories before files |
 | `confirmDelete` | Prompt before deleting items |
 | `useTrash` | Send deleted items to trash (vs. permanent deletion) |
-| `defaultView` | Start in `list`, `compact`, `grid` or `gallery` view |
+| `defaultView` | Start in `list`, `compact` or `grid` view |
 | `terminal` | Terminal command to open in the current directory |
 | `editor` | Text editor command to open selected files |
 | `showTransferBadge` | Show a progress ring on the bar icon while a transfer runs |

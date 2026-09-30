@@ -648,14 +648,18 @@ function sortPresetKey(sortBy, descending) {
 
 var viewModes = [
   { key: 'list', label: 'List', glyph: 'list' },
-  { key: 'compact', label: 'Compact', glyph: 'columns' },
   { key: 'grid', label: 'Grid', glyph: 'grid' },
-  { key: 'gallery', label: 'Gallery', glyph: 'grid' }
+  { key: 'compact', label: 'Compact', glyph: 'columns' }
 ];
 
 function isViewMode(key) {
   for (var i = 0; i < viewModes.length; i++) if (viewModes[i].key === key) return true;
   return false;
+}
+
+function normalizeViewMode(key) {
+  if (key === 'gallery') return 'grid';
+  return isViewMode(key) ? key : 'list';
 }
 
 function isImageName(name) {
