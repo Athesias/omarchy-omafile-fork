@@ -818,9 +818,104 @@ Item {
     }
     return items
   }
+  function placeMenuActions(row) {
+    var items = []
+    if (!row || row.key === "drive" || row.key === "usb" || row.unhide === true) return items
+    var real = row.path && row.path !== "recent:"
+    if (row.server === true || row.connect === true) {
+      items.push({ key: "place:connect", label: "Connect", glyph: Icons.placeGlyph("network") })
+      if (row.remembered === true && row.uri)
+        items.push({ key: "place:editserver", label: "Edit\u2026", glyph: Icons.actionGlyph("rename") })
+      if (row.remembered === true && row.uri)
+        items.push({ key: "place:forget", label: "Forget this server", glyph: Icons.actionGlyph("close") })
+      return items
+    }
+    items.push({ key: "place:open", label: "Open", glyph: Icons.actionGlyph("open") })
+    items.push({ key: "place:tab", label: "Open in new tab", glyph: Icons.actionGlyph("add") })
+    if (split) items.push({ key: "place:other", label: "Open in the other pane", glyph: Icons.actionGlyph("split") })
+    var extra = []
+    if (row.bookmark === true) {
+      extra.push({ key: "place:unbookmark", label: "Remove bookmark", glyph: Icons.actionGlyph("close") })
+    }
+    if (row.mounted === true)
+      extra.push({ key: "place:disconnect", label: "Disconnect", glyph: Icons.actionGlyph("eject") })
+    if (row.connected === true && row.remembered === true && row.uri)
+      extra.push({ key: "place:forget", label: "Forget this server", glyph: Icons.actionGlyph("close") })
+    if (row.trash === true)
+      extra.push({ key: "place:emptytrash", label: "Empty trash", glyph: Icons.actionGlyph("delete"),
+        disabled: !service || service.trashCount <= 0 })
+    if (extra.length > 0) {
+      items.push({ key: "sep-place1", label: "", glyph: "" })
+      items = items.concat(extra)
+    }
+    if (real) {
+      items.push({ key: "sep-place2", label: "", glyph: "" })
+      items.push({ key: "place:copypath", label: "Copy path", glyph: Icons.actionGlyph("copy") })
+      items.push({ key: "place:properties", label: "Properties", glyph: Icons.actionGlyph("properties") })
+    }
+    return items
+  }
+  function openPlaceMenu(row, x, y) {
+    var pt = sidebar.mapToItem(keyCatcher, x, y)
+    menuKind = "sidebar"
+    menuEntry = row
+    menuActions = placeMenuActions(row)
+    menuCursor = -1
+    menuX = pt.x
+    menuY = pt.y
+    menuOpen = true
+  }
+  function runPlaceAction(action, row) {
+    if (!row) return
+    var path = String(row.path || "")
+    if (action === "open") activePane().navigate(path)
+    else if (action === "tab") newTab(activeSide, path)
+    else if (action === "other" && split) {
+      activeSide = otherSide()
+      activePane().navigate(path)
+    }
+    else if (action === "unbookmark") service.togglePinned(path)
+    else if (action === "forget") {
+      service.forgetServer(String(row.uri || ""))
+      statusText = "Forgot " + String(row.label || row.uri || "")
+    }
+    else if (action === "disconnect") service.disconnectServer(path, null, null)
+    else if (action === "emptytrash") askEmptyTrash()
+    else if (action === "copypath") {
+      service.copyToClipboardText(path)
+      statusText = "Path copied"
+    }
+    else if (action === "properties") showPlaceProperties(row)
+    else if (action === "connect") showDialog("connect", "Connect to a server", String(row.uri || ""), null)
+    else if (action === "editserver") showDialog("connect", "Connect to a server", String(row.uri || ""), null)
+  }
+  function showPlaceProperties(row) {
+    var path = String(row.path || "")
+    service.statPaths([path], function (items) {
+      var info = items && items.length > 0 ? items[0] : null
+      if (!info || info.error) {
+        root.statusText = "Could not read " + row.label
+        return
+      }
+      var entry = Model.decodeEntry([path === "/" ? "/" : Model.basename(path), info.kind, info.size,
+        info.mtime, info.mode, info.linkTarget, path], Model.dirname(path))
+      entry.placeLabel = String(row.label || "")
+      entry.skipUsage = path === "/"
+      root.showProperties(entry)
+    })
+  }
   function runAction(key) {
     if (key.indexOf("zoom:") === 0) {
       runZoom(key.substring(5))
+      return
+    }
+    if (key.indexOf("place:") === 0) {
+      var row = menuEntry
+      menuOpen = false
+      menuKind = ""
+      runPlaceAction(key.substring(6), row)
+      focusZone = "pane"
+      keyCatcher.forceActiveFocus()
       return
     }
     var p = activePane()
@@ -951,7 +1046,7 @@ Item {
     service.statPaths([entry.path], function (items) {
       if (items && items.length > 0) root.propsInfo = items[0]
     })
-    if (entry.isDir) {
+    if (entry.isDir && !entry.skipUsage) {
       propsDuId = service.diskUsage(entry.path, function (m) {
         root.propsBytes = Number(m.bytes) || 0
         root.propsFiles = Number(m.files) || 0
@@ -1664,6 +1759,7 @@ Item {
           onRemoveBookmark: function (target) { root.service.togglePinned(target) }
           onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
           onHideDrive: function (key) { root.service.toggleHiddenDrive(key) }
+          onPlaceMenuRequested: function (row, x, y) { root.openPlaceMenu(row, x, y) }
           onShowAllDrives: root.showDialog("settings", "Settings", "", null)
           onConnectServer: function (uri) {
             root.showDialog("connect", "Connect to a server", String(uri || ""), null)
@@ -3249,14 +3345,14 @@ Item {
     var info = propsInfo
     if (!entry) return []
     var rows = []
-    rows.push({ label: "Name", value: entry.name })
+    rows.push({ label: "Name", value: entry.placeLabel || entry.name })
     rows.push({ label: "Location", value: Model.dirname(entry.path) })
     rows.push({ label: "Type", value: Model.kindLabel(entry) })
-    if (entry.isDir) {
+    if (!entry.isDir) {
+      rows.push({ label: "Size", value: Model.formatSize(entry.size) })
+    } else if (!entry.skipUsage) {
       rows.push({ label: "Contents", value: propsFiles + " files, " + propsDirs + " folders" })
       rows.push({ label: "Size", value: Model.formatSize(propsBytes) })
-    } else {
-      rows.push({ label: "Size", value: Model.formatSize(entry.size) })
     }
     rows.push({ label: "Modified", value: Model.formatFullDate(entry.mtime) })
     if (info) {

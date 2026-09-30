@@ -107,6 +107,7 @@ Videos, PDFs, office documents and other files get a thumbnail from the thumbnai
 Places, then your bookmarks, then drives, then Network, then Trash.
 
 Right click a folder and choose Bookmark this folder to pin it. Remove a bookmark with the cross beside it.
+Right click places, bookmarks and network entries for a menu: open here or in another tab or pane, copy the path, show properties, remove a bookmark, connect or disconnect a network share, or empty Trash. Drive controls remain provided by the upstream implementation.
 
 Recent lists the files you opened most recently, newest first, from the same history the rest of the desktop uses. Opening one goes straight to the file. There is no folder above it, so leave by picking a place or a bookmark.
 

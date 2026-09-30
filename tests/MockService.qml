@@ -82,6 +82,10 @@ QtObject {
     record("restoreFromTrash", [names])
     if (onDone) onDone({ results: names.map(function (n) { return { path: n, ok: true } }) })
   }
+  function toggleHiddenDrive(key) { record("toggleHiddenDrive", [key]) }
+  function togglePinned(path) { record("togglePinned", [path]) }
+  function disconnectServer(path, onDone, onError) { record("disconnectServer", [path]) }
+  function copyToClipboardText(text) { record("copyToClipboardText", [text]) }
   function emptyTrash(onDone) { record("emptyTrash", []); trashCount = 0; if (onDone) onDone({}) }
   function peekFile(path, limit, onDone, onError) { record("peekFile", [path]); onDone({ text: "key: value\n", binary: false, truncated: false }) }
   function openWith(command, path, inTerminal) { record("openWith", [command, path, inTerminal]) }

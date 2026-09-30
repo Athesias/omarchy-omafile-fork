@@ -313,6 +313,32 @@ ShellRoot {
         mock.statItems = ({})
       }
 
+      function menuLabels(items) { return items.filter(function (i) { return i.label !== "" }).map(function (i) { return i.label }) }
+
+      function test_3i_sidebarMenu() {
+        compare(browser.placeMenuActions({ key: "drive", path: "/mnt" }).length, 0)
+        compare(browser.placeMenuActions({ key: "usb", path: "/media/usb" }).length, 0)
+        verify(menuLabels(browser.placeMenuActions({ key: "pinned", bookmark: true, label: "Work", path: "/tmp/work" })).indexOf("Remove bookmark") >= 0)
+        verify(menuLabels(browser.placeMenuActions({ key: "networkdrive", label: "laptop", path: "/run/user/1000/gvfs/sftp:host=laptop", mounted: true })).indexOf("Disconnect") >= 0)
+        var trash = browser.placeMenuActions({ key: "trash", label: "Trash", path: "/tmp/.trash", trash: true })
+        compare(trash.filter(function (i) { return i.label === "Empty trash" })[0].disabled, true)
+        verify(menuLabels(browser.placeMenuActions({ key: "recent", label: "Recent", path: "recent:" })).indexOf("Copy path") < 0)
+
+        mock.calls = []
+        browser.runPlaceAction("copypath", { key: "home", label: "Home", path: "/home/me" })
+        compare(mock.called("copyToClipboardText").args[0], "/home/me")
+
+        var homeRow = findChild(browser, "place-home")
+        verify(homeRow !== null)
+        mock.calls = []
+        mouseClick(homeRow, 20, homeRow.height / 2, Qt.RightButton)
+        verify(browser.menuOpen, "right click opens a menu")
+        compare(browser.menuKind, "sidebar")
+        compare(mock.called("toggleHiddenDrive"), null, "right click no longer hides anything")
+        compare(menuLabels(browser.menuActions)[0], "Open")
+        browser.closeMenu()
+      }
+
       function test_4_mouseBackForward() {
         waitRows()
         pane().navigate("/tmp/docs")

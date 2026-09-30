@@ -84,6 +84,7 @@ Item {
   signal connectServer(string uri)
   signal disconnectServer(string path)
   signal dropRequested(var urls, string dest)
+  signal placeMenuRequested(var row, real x, real y)
 
   function usablePlace(value, homePath) {
     var p = String(value || "")
@@ -250,6 +251,7 @@ Item {
 
               delegate: Rectangle {
                 required property var modelData
+                objectName: "place-" + String(modelData.key || "")
                 readonly property bool cursored: sidebar.keyboardActive
                   && sidebar.rowKey(modelData) === sidebar.cursorKey
                 width: column.width - Style.space(8)
@@ -277,6 +279,12 @@ Item {
                   anchors.fill: parent
                   acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                   onClicked: function (mouse) {
+                    if (mouse.button === Qt.RightButton && modelData.key !== "drive" && modelData.key !== "usb"
+                        && modelData.unhide !== true) {
+                      var point = mapToItem(sidebar, mouse.x, mouse.y)
+                      sidebar.placeMenuRequested(modelData, point.x, point.y)
+                      return
+                    }
                     if (modelData.unhide === true) {
                       sidebar.showAllDrives()
                       return
