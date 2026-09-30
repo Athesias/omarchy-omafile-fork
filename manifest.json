@@ -40,6 +40,9 @@
       "glyph": "",
       "showDrives": true,
       "thumbnails": true,
+      "gridCaption1": "none",
+      "gridCaption2": "none",
+      "gridCaption3": "none",
       "windowMode": "window",
       "trashConfirm": true
     },
@@ -139,6 +142,24 @@
         "type": "boolean",
         "label": "Show image previews and thumbnails for videos and documents",
         "defaultValue": true
+      },
+      {
+        "key": "gridCaption1",
+        "type": "string",
+        "label": "First grid caption: none, size, type, modified or permissions",
+        "defaultValue": "none"
+      },
+      {
+        "key": "gridCaption2",
+        "type": "string",
+        "label": "Second grid caption, shown from 90 percent zoom",
+        "defaultValue": "none"
+      },
+      {
+        "key": "gridCaption3",
+        "type": "string",
+        "label": "Third grid caption, shown from 130 percent zoom",
+        "defaultValue": "none"
       },
       {
         "key": "windowMode",

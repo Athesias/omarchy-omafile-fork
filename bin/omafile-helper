@@ -1752,6 +1752,34 @@ def op_setbookmarks(req):
         return
     send_done(req_id, count=len(lines))
 
+COUNT_LIMIT = 100000
+
+def op_counts(req, cancel_event):
+    req_id = req["id"]
+    paths = req.get("paths") or []
+    hidden = bool(req.get("hidden", False))
+    counts = {}
+    for path in paths[:500]:
+        if cancel_event.is_set():
+            send_error(req_id, "ECANCELED", "cancelled")
+            return
+        if not isinstance(path, str):
+            continue
+        n = 0
+        try:
+            with os.scandir(to_bytes(path)) as it:
+                for entry in it:
+                    if not hidden and entry.name.startswith(b"."):
+                        continue
+                    n += 1
+                    if n >= COUNT_LIMIT:
+                        break
+        except OSError:
+            n = -1
+        counts[path] = n
+    emit({"id": req_id, "t": "counts", "counts": counts, "limit": COUNT_LIMIT})
+    send_done(req_id)
+
 def op_freespace(req):
     req_id = req["id"]
     path = req.get("path")
@@ -2805,6 +2833,7 @@ CANCELLABLE_OPS = {
     "setdefaultfm": op_setdefaultfm,
     "unmounturi": op_unmounturi,
     "thumb": op_thumb,
+    "counts": op_counts,
 }
 
 SIMPLE_OPS = {

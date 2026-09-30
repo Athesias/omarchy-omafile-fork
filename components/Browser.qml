@@ -59,6 +59,17 @@ Item {
   }
   onTransferCountChanged: if (transferCount === 0) transfersOpen = false
 
+  readonly property var captionOptions: [
+    { label: "None", value: "none" },
+    { label: "Size, or items in a folder", value: "size" },
+    { label: "Type", value: "type" },
+    { label: "Modified", value: "modified" },
+    { label: "Permissions", value: "permissions" }
+  ]
+  readonly property var gridCaptions: [
+    textSetting("gridCaption1", "none"), textSetting("gridCaption2", "none"), textSetting("gridCaption3", "none")
+  ]
+
   function showTransfers(open) {
     transfersOpen = open && transferCount > 0
     transfersAutoOpened = false
@@ -1008,6 +1019,10 @@ Item {
     else if (key === "refresh") p.refresh()
     else if (key === "togglehidden") { p.showHidden = !p.showHidden; rememberSession() }
     else if (key === "settings") showDialog("settings", "Settings", "", null)
+    else if (key === "captions") {
+      settingsSection = "view"
+      showDialog("settings", "Settings", "", null)
+    }
     else if (key === "shortcuts") showDialog("shortcuts", "Keyboard shortcuts", "", null)
   }
   function runZoom(action) {
@@ -1197,6 +1212,7 @@ Item {
     items.push({ label: "" })
     items.push({ key: "togglehidden", label: "Show hidden files", hint: "Ctrl+H",
       glyph: p && p.showHidden ? check : Icons.actionGlyph("hidden") })
+    items.push({ key: "captions", label: "Grid captions\u2026", glyph: Icons.actionGlyph("properties") })
     return items
   }
   function menuWidth() {
@@ -1874,6 +1890,7 @@ Item {
                 - (trashBarA.visible ? trashBarA.height : 0)
               service: root.service
               viewScale: root.viewScale
+              captions: root.gridCaptions
               active: root.activeSide === 0
               onActivated: {
                 root.activeSide = 0
@@ -1936,6 +1953,7 @@ Item {
                 - (trashBarB.visible ? trashBarB.height : 0)
               service: root.service
               viewScale: root.viewScale
+              captions: root.gridCaptions
               active: root.activeSide === 1
               onActivated: {
                 root.activeSide = 1
@@ -2962,6 +2980,38 @@ Item {
                     text: "Reset to 100 percent"
                     bordered: true
                     onClicked: root.setViewScale(1)
+                  }
+
+                  PanelSectionHeader {
+                    width: parent.width
+                    text: "Grid captions"
+                  }
+
+                  Text {
+                    width: parent.width
+                    text: "Extra lines under names in grid view. More of them appear as you zoom in."
+                    color: Util.alpha(Color.popups.text, 0.6)
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.Wrap
+                  }
+
+                  Repeater {
+                    model: [
+                      { key: "gridCaption1", label: "First" },
+                      { key: "gridCaption2", label: "Second" },
+                      { key: "gridCaption3", label: "Third" }
+                    ]
+
+                    delegate: Dropdown {
+                      required property var modelData
+                      objectName: "captionPicker-" + modelData.key
+                      width: settingsColumn.width
+                      label: modelData.label
+                      value: root.textSetting(modelData.key, "none")
+                      options: root.captionOptions
+                      onChanged: function (v) { root.applySettingNow(modelData.key, v) }
+                    }
                   }
                 }
 

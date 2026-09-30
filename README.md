@@ -88,6 +88,8 @@ The Sort by section of the View menu sorts by A to Z, Z to A, last modified, fir
 
 The View button in the toolbar opens one menu for the layout, zoom, sorting and hidden files. It switches between list, compact and grid. Compact packs names into columns. Ctrl+1 to Ctrl+3 pick them from the keyboard.
 
+Grid view can show captions under each name, like GNOME Files: pick up to three from Size (item count for folders), Type, Modified and Permissions under Settings, View, or with Grid captions in the View menu. The first shows at any size, the second from 90 percent zoom and the third from 130 percent.
+
 Zoom scales rows, icons and grid cells from 50 to 300 percent. Use the minus and plus buttons in the View menu, Ctrl with the scroll wheel over a pane, or Ctrl+Plus, Ctrl+Minus and Ctrl+0. Click the percentage to go back to 100 percent. Grid at a high zoom level replaces the old gallery view.
 
 ### Preview

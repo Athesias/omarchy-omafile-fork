@@ -586,6 +586,21 @@ class MountTargetTests(unittest.TestCase):
         self.fake_gio(os.path.join(self.tmp, "missing"))
         self.assertEqual(self.helper.gio_local_folder("ssh://laptop/missing"), "")
 
+class CountTests(HelperTestCase):
+    def test_counts_folder_items(self):
+        full = self.path("full")
+        os.makedirs(full)
+        for name in ("a", "b", ".hidden"):
+            open(os.path.join(full, name), "w").close()
+        empty = self.path("empty")
+        os.makedirs(empty)
+        missing = self.path("missing")
+        msgs = self.helper.call({"id": self.next_id(), "op": "counts", "paths": [full, empty, missing]})
+        counts = [m for m in msgs if m["t"] == "counts"][0]["counts"]
+        self.assertEqual(counts, {full: 2, empty: 0, missing: -1})
+        msgs = self.helper.call({"id": self.next_id(), "op": "counts", "paths": [full], "hidden": True})
+        self.assertEqual([m for m in msgs if m["t"] == "counts"][0]["counts"][full], 3)
+
 class SymlinkTests(HelperTestCase):
     def test_symlink_kinds(self):
         target_dir = self.path("realdir")

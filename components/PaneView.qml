@@ -641,6 +641,71 @@ Item {
     else pane.openRequested(entry)
   }
 
+  property var captions: []
+  property var dirCounts: ({})
+  property var _countQueue: ({})
+  property var _countPending: ({})
+  readonly property var shownCaptions: {
+    if (pane.view !== "grid") return []
+    var list = []
+    for (var i = 0; i < captions.length; i++)
+      if (captions[i] && captions[i] !== "none" && list.indexOf(captions[i]) < 0) list.push(String(captions[i]))
+    var room = viewScale < 0.9 ? 1 : (viewScale < 1.3 ? 2 : 3)
+    return list.slice(0, room)
+  }
+  readonly property int captionFontSize: Math.max(8, Math.round(pane.scaled(Style.font.caption) * 0.92))
+  readonly property int captionLineHeight: Math.round(captionFontSize * 1.4)
+
+  onPathChanged: {
+    dirCounts = ({})
+    _countPending = ({})
+  }
+
+
+  function captionText(entry, kind) {
+    if (!entry) return ""
+    if (kind === "size") {
+      if (!entry.isDir) return Model.formatSize(entry.size)
+      var n = dirCounts[entry.path + "|" + entry.mtime]
+      if (n === undefined) {
+        queueCount(entry)
+        return ""
+      }
+      return n < 0 ? "" : Model.formatCount(n, "item", "items")
+    }
+    if (kind === "type") return Model.kindLabel(entry)
+    if (kind === "modified") return Model.formatDate(entry.mtime)
+    if (kind === "permissions") return Model.formatMode(entry.mode)
+    return ""
+  }
+
+  function queueCount(entry) {
+    if (!service || !service.itemCounts) return
+    if (_countQueue[entry.path] !== undefined || _countPending[entry.path]) return
+    var first = Object.keys(_countQueue).length === 0
+    _countQueue[entry.path] = entry.mtime
+    if (first) Qt.callLater(flushCounts)
+  }
+
+  function flushCounts() {
+    var queue = _countQueue
+    _countQueue = ({})
+    var paths = Object.keys(queue)
+    if (paths.length === 0 || !service) return
+    var mtimes = paths.map(function (p) { return queue[p] })
+    for (var i = 0; i < paths.length; i++) _countPending[paths[i]] = true
+    var forPath = pane.path
+    service.itemCounts(paths, mtimes, pane.showHidden, function (got) {
+      if (forPath !== pane.path) return
+      var next = {}
+      for (var k in pane.dirCounts) next[k] = pane.dirCounts[k]
+      for (var p in got) {
+        next[p + "|" + queue[p]] = Number(got[p])
+        delete pane._countPending[p]
+      }
+      pane.dirCounts = next
+    })
+  }
 
   function isCut(entry) {
     if (!entry || !service || !service.cutPaths) return false
@@ -684,7 +749,11 @@ Item {
     if (service && pane.path && !loading && rows.length === 0) reload()
   }
 
-  onShowHiddenChanged: if (ready) reload()
+  onShowHiddenChanged: {
+    dirCounts = ({})
+    _countPending = ({})
+    if (ready) reload()
+  }
   onFilterChanged: if (ready) rebuild()
   onPatternsChanged: if (ready) rebuild()
   onDirsFirstChanged: if (ready) rebuild()
@@ -1123,7 +1192,7 @@ Item {
         cellWidth: pane.compactView ? Math.round(Style.space(230) * pane.viewScale)
           : Math.round(Style.space(110) * pane.viewScale)
         cellHeight: pane.compactView ? pane.rowHeight + Style.space(2)
-          : Math.round(Style.space(pane.view === "gallery" ? 196 : 96) * pane.viewScale)
+          : Math.round(Style.space(96) * pane.viewScale) + pane.shownCaptions.length * pane.captionLineHeight
         cacheBuffer: 600
         boundsBehavior: Flickable.StopAtBounds
 
@@ -1139,13 +1208,23 @@ Item {
 
           width: gridView.cellWidth - (pane.compactView ? Style.space(4) : 0)
           height: gridView.cellHeight
-          radius: Style.cornerRadius
-          color: cellDrop.containsDrag ? Util.alpha(pane.accent, 0.3)
-            : pane.selection[modelData[0]]
-            ? Util.alpha(pane.accent, Style.selectedFillAlpha)
-            : (cellHover.hovered ? Util.alpha(pane.fg, Style.hoverFillAlpha) : "transparent")
-          border.width: pane.cursorIndex === index && pane.active ? 1 : 0
-          border.color: Util.alpha(pane.accent, 0.8)
+          color: "transparent"
+
+          Rectangle {
+            objectName: "cellBackground"
+            anchors.fill: parent
+            anchors.margins: pane.compactView ? Style.space(1) : Style.space(4)
+            radius: Style.cornerRadius
+            color: cellDrop.containsDrag
+              ? Util.alpha(pane.accent, 0.3)
+              : (pane.selection[cell.modelData[0]]
+                ? Util.alpha(pane.accent, Style.selectedFillAlpha)
+                : (cellHover.hovered ? Util.alpha(pane.fg, Style.hoverFillAlpha) : "transparent"))
+            readonly property bool isCursor: pane.cursorIndex === cell.index && pane.active
+            readonly property bool isSelected: pane.selection[cell.modelData[0]] === true
+            border.width: isCursor || isSelected ? Math.max(1, Style.space(1)) : 0
+            border.color: isCursor ? Util.alpha(pane.accent, 0.8) : Util.alpha(pane.accent, 0.35)
+          }
 
           HoverHandler { id: cellHover }
 
@@ -1320,6 +1399,30 @@ Item {
               font.pixelSize: pane.scaled(Style.font.caption)
               maximumLineCount: 2
               wrapMode: Text.WrapAnywhere
+            }
+
+            Column {
+              width: parent.width
+              visible: pane.shownCaptions.length > 0
+              spacing: 0
+
+              Repeater {
+                model: pane.shownCaptions
+
+                delegate: Text {
+                  required property var modelData
+                  objectName: "caption-" + modelData
+                  width: parent.width
+                  height: pane.captionLineHeight
+                  horizontalAlignment: Text.AlignHCenter
+                  verticalAlignment: Text.AlignVCenter
+                  text: pane.captionText(cell.entry, modelData)
+                  color: Util.alpha(pane.fg, 0.5)
+                  font.family: Style.font.family
+                  font.pixelSize: pane.captionFontSize
+                  elide: Text.ElideMiddle
+                }
+              }
             }
           }
         }

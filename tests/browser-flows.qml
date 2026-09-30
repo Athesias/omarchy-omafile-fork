@@ -3,6 +3,7 @@ import QtTest
 import Quickshell
 import "FilePlugin/components" as Plugin
 import "FilePlugin/tests" as Mocks
+import "FilePlugin/Model.js" as Model
 ShellRoot {
   id: harness
   property bool passed: false
@@ -445,6 +446,35 @@ ShellRoot {
         mock.servers = []
         mock.serverSettings = ({})
         mock.connectResult = null
+      }
+
+      function test_3m_gridCaptions() {
+        waitRows()
+        pane().setSortOrder("name", false)
+        browser.setView("grid")
+        var grid = pane().activeView()
+        var plainHeight = grid.cellHeight
+        browser.applySettingNow("gridCaption1", "size")
+        browser.applySettingNow("gridCaption2", "type")
+        compare(pane().shownCaptions, ["size", "type"])
+        verify(grid.cellHeight > plainHeight, "captions make room for themselves")
+        var byName = function (n) { return Model.decodeEntry(pane().rows.filter(function (r) { return r[0] === n })[0], "/tmp") }
+        pane().captionText(byName("docs"), "size")
+        tryVerify(function () { return pane().captionText(byName("docs"), "size") === "3 items" }, 2000,
+          "folders show how many items they hold")
+        var alpha = byName("alpha.yml")
+        compare(pane().captionText(alpha, "size"), Model.formatSize(30))
+        compare(pane().captionText(alpha, "type"), Model.kindLabel(alpha))
+        browser.setViewScale(0.8)
+        compare(pane().shownCaptions, ["size"], "fewer captions when zoomed out")
+        browser.setViewScale(1)
+        waitForRendering(browser)
+        var bg = findChild(grid.itemAtIndex(0), "cellBackground")
+        verify(bg.width < grid.itemAtIndex(0).width, "tiles keep a margin around the selection")
+        browser.applySettingNow("gridCaption1", "none")
+        browser.applySettingNow("gridCaption2", "none")
+        compare(pane().shownCaptions, [])
+        browser.setView("list")
       }
 
       function test_4_mouseBackForward() {

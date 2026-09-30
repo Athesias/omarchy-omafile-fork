@@ -123,4 +123,11 @@ QtObject {
   }
   function pasteImage(dest, type, onDone, onError) { record("pasteImage", [dest, type]); onDone(dest + "/Pasted image.png"); return 0 }
   function sameDevice(path, dest, onDone) { onDone(sameDrive) }
+  function itemCounts(paths, mtimes, hidden, onResult) {
+    record("itemCounts", [paths])
+    var out = {}
+    for (var i = 0; i < paths.length; i++) out[paths[i]] = 3
+    Qt.callLater(function () { onResult(out) })
+    return 0
+  }
 }

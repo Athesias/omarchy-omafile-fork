@@ -309,6 +309,33 @@ Item {
   property var _thumbCache: ({})
   property var _thumbWaiting: ({})
 
+  property var _countCache: ({})
+
+  function itemCounts(paths, mtimes, hidden, onResult) {
+    var ready = {}
+    var missing = []
+    for (var i = 0; i < paths.length; i++) {
+      var key = (hidden ? "h|" : "v|") + mtimes[i] + "|" + paths[i]
+      if (_countCache[key] !== undefined) ready[paths[i]] = _countCache[key]
+      else missing.push(i)
+    }
+    if (Object.keys(ready).length > 0) onResult(ready)
+    if (missing.length === 0) return 0
+    var ask = missing.map(function (i) { return paths[i] })
+    return request({ op: "counts", paths: ask, hidden: hidden === true }, {
+      onData: function (m) {
+        if (m.t !== "counts") return
+        var got = m.counts || {}
+        for (var j = 0; j < missing.length; j++) {
+          var p = paths[missing[j]]
+          if (got[p] === undefined) continue
+          root._countCache[(hidden ? "h|" : "v|") + mtimes[missing[j]] + "|" + p] = Number(got[p])
+        }
+        onResult(got)
+      }
+    })
+  }
+
   function refreshThumbTypes() {
     request({ op: "thumbtypes" }, {
       onData: function (m) {

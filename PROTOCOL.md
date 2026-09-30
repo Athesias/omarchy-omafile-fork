@@ -297,6 +297,17 @@ and the file chooser share. Only local `file://` entries are returned. `setbookm
 file atomically with the given folders in order, and keeps every line it does not manage, such as
 `sftp://` bookmarks, after them.
 
+### counts
+
+```
+{"id": N, "op": "counts", "paths": ["/home/me/Music", "/home/me/Videos"], "hidden": false}
+```
+
+Cancellable. Replies `{"t": "counts", "counts": {"/home/me/Music": 12, ...}, "limit": 100000}` then
+`done`: how many entries each folder holds, for grid captions. Dotfiles count only when `hidden`
+is true, a folder that cannot be read counts as `-1`, and counting stops at `limit`. At most 500
+paths are counted per request.
+
 ### freespace
 
 ```
