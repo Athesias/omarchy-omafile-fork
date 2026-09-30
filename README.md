@@ -101,6 +101,10 @@ Connect to a server mounts an SMB share, an SFTP host, FTP or WebDAV. Servers yo
 
 This uses GVFS and needs no root. Install `gvfs-smb` for Windows shares if it is missing.
 
+### Terminal
+
+Right click a folder, or empty space for the folder you are in, and choose Open in terminal, or press Ctrl+.. With [Claude Code](https://claude.com/claude-code) installed, Open Claude Code here starts it in that folder and leaves a shell open when it exits.
+
 ### Settings
 
 Ctrl+Comma, or the gear in the toolbar. Hidden files, folders-first ordering, image previews, trash behaviour, the drive list, and the trash can in the bar.
@@ -170,6 +174,7 @@ Omafile follows GNOME Files conventions, so shortcuts you already know work here
 | `/` or `~` | Type a path, starting from root or home |
 | `Home` / `End` | First and last item |
 | `F5` / `Ctrl+R` | Refresh |
+| `Ctrl+.` | Open a terminal in this folder |
 
 ### Moving around without a mouse
 
