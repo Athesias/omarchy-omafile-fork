@@ -55,4 +55,12 @@ QtObject {
   function runCommandOn(text, path) { record("runCommandOn", [text, path]); return true }
   function openExternally(path) { record("openExternally", [path]) }
   function finishPick(result) { record("finishPick", [result]); pickRequest = null }
+  property var systemClipboard: null
+  property bool sameDrive: true
+  function readSystemClipboard(onDone) { onDone(systemClipboard) }
+  function clearSystemClipboard() { record("clearSystemClipboard", []) }
+  function clearClipboard() { record("clearClipboard", []) }
+  function sameDevice(path, dest, onDone) { onDone(sameDrive) }
+  function beginTransfer(op, paths, dest, conflict) { record("beginTransfer", [op, paths, dest, conflict]) }
+  function trashPaths(paths, onDone, onError) { record("trashPaths", [paths]) }
 }

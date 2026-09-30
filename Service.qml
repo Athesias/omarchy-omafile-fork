@@ -325,6 +325,25 @@ Item {
 
   function setClipboard(mode, paths) {
     clipboard = { mode: mode, paths: paths.slice() }
+    request({ op: "clipset", mode: mode, paths: paths.slice() }, null)
+  }
+
+  function readSystemClipboard(onDone) {
+    return request({ op: "clipget" }, {
+      onDone: function (m) { onDone({ mode: String(m.mode || "copy"), paths: m.paths || [] }) },
+      onError: function () { onDone(null) }
+    })
+  }
+
+  function clearSystemClipboard() {
+    request({ op: "clipclear" }, null)
+  }
+
+  function sameDevice(path, dest, onDone) {
+    return request({ op: "samedev", path: path, dest: dest }, {
+      onDone: function (m) { onDone(m.same === true) },
+      onError: function () { onDone(false) }
+    })
   }
 
   function clearClipboard() {

@@ -261,6 +261,45 @@ ShellRoot {
         compare(browser.sidebarVisible, shown)
       }
 
+      function test_9d_pasteFromSystemClipboard() {
+        pane().navigate("/tmp")
+        waitRows()
+        mock.calls = []
+        mock.systemClipboard = { mode: "cut", paths: ["/elsewhere/a.txt"] }
+        browser.doPaste()
+        var call = mock.called("beginTransfer")
+        compare(call.args[0], "move")
+        compare(call.args[1][0], "/elsewhere/a.txt")
+        compare(call.args[2], "/tmp")
+        verify(mock.called("clearSystemClipboard") !== null, "a cut is used up")
+        mock.calls = []
+        mock.systemClipboard = { mode: "copy", paths: [] }
+        browser.doPaste()
+        compare(mock.called("beginTransfer"), null)
+        compare(browser.statusText, "Nothing to paste")
+        mock.systemClipboard = null
+      }
+
+      function test_9e_dropMovesOrCopies() {
+        waitRows()
+        mock.calls = []
+        mock.sameDrive = true
+        browser.handleDrop(["file:///elsewhere/My%20file.txt", "https://example.com/x"], "/tmp/docs")
+        var call = mock.called("beginTransfer")
+        compare(call.args[0], "move")
+        compare(call.args[1].length, 1)
+        compare(call.args[1][0], "/elsewhere/My file.txt")
+        mock.calls = []
+        mock.sameDrive = false
+        browser.handleDrop(["file:///elsewhere/a.txt"], "/tmp/docs")
+        compare(mock.called("beginTransfer").args[0], "copy")
+        mock.calls = []
+        browser.handleDrop(["file:///tmp/docs"], "/tmp/docs")
+        browser.handleDrop(["file:///tmp/alpha.yml"], "/tmp")
+        compare(mock.called("beginTransfer"), null, "no drop onto itself or its own folder")
+        mock.sameDrive = true
+      }
+
       function test_zz_done() {
         if (failures > 0) return
         console.log("OMAFILE_BROWSER_FLOWS_PASSED")

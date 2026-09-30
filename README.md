@@ -160,6 +160,12 @@ The same from a terminal:
 
 `enable` adds `org.freedesktop.impl.portal.FileChooser=omafile` to `~/.config/xdg-desktop-portal/hyprland-portals.conf` and keeps anything else you have in that file. `disable` removes only that line.
 
+### Clipboard and drag and drop
+
+Copy, cut and paste use the system clipboard, so files copied in GNOME Files, a browser or a chat app paste into Omafile, and files copied in Omafile paste into them. A cut offers GNOME's format, so pasting it in GNOME Files moves the files.
+
+Drag files onto a folder, a sidebar place or the pane background to move them there, or out of the window into another app. Dropping on another drive copies instead of moving, as in GNOME Files. Dropping on Trash moves them to the trash. Drag from the space beside a name to draw a selection box instead of dragging the item.
+
 ### Copying over something that exists
 
 Omafile asks what to do. Choose with the mouse, or with the keys under [Keyboard](#when-a-file-already-exists).
