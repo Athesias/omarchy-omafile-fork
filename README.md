@@ -245,7 +245,7 @@ Undo covers trash, rename, move, copy and new file or folder. Undoing a trash pu
 
 | Keys | Action |
 |------|--------|
-| `Ctrl+T` | New tab |
+| `Ctrl+T` | New tab with the same view, sort and hidden files setting |
 | `Ctrl+W` | Close the tab, or the window when it is the last one |
 | `Ctrl+Shift+T` | Reopen the last closed tab |
 | `Ctrl+PageUp` / `Ctrl+PageDown` | Previous and next tab |

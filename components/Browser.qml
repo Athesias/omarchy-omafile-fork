@@ -62,6 +62,16 @@ Item {
       filter: ""
     }
   }
+  function inheritedTab(fromSide, path) {
+    var p = paneFor(fromSide)
+    var tab = defaultTab(path || p.path)
+    if (!p.ready) return tab
+    tab.view = Model.normalizeViewMode(p.view)
+    tab.sortBy = p.sortBy
+    tab.descending = p.descending
+    tab.hidden = p.showHidden
+    return tab
+  }
   function paneFor(side) {
     return side === 1 ? paneB : paneA
   }
@@ -121,7 +131,7 @@ Item {
   function newTab(side, path) {
     storeCurrentTab(side)
     var list = tabsFor(side).slice()
-    list.push(defaultTab(path || paneFor(side).path))
+    list.push(inheritedTab(side, path))
     setTabs(side, list)
     setActiveIndex(side, list.length - 1)
     applyTab(side, list[list.length - 1])
@@ -205,7 +215,7 @@ Item {
   function toggleSplit() {
     split = !split
     if (split && tabsB.length === 0) {
-      tabsB = [defaultTab(paneA.path)]
+      tabsB = [inheritedTab(0, paneA.path)]
       activeB = 0
       applyTab(1, tabsB[0])
     }

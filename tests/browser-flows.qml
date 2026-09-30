@@ -133,6 +133,25 @@ ShellRoot {
         browser.closeDialog()
       }
 
+      function test_3d_newTabKeepsView() {
+        waitRows()
+        browser.setView("grid")
+        pane().setSortOrder("modified", true)
+        pane().showHidden = true
+        keyClick(Qt.Key_T, Qt.ControlModifier)
+        compare(browser.tabsA.length, 2)
+        waitRows()
+        compare(pane().view, "grid")
+        compare(pane().sortBy, "modified")
+        compare(pane().descending, true)
+        compare(pane().showHidden, true)
+        browser.closeTab(0, 1)
+        browser.setView("list")
+        pane().setSortOrder("name", false)
+        pane().showHidden = false
+        waitRows()
+      }
+
       function test_3e_breadcrumbDrops() {
         var bar = findChild(browser, "pathBar")
         verify(bar !== null)
