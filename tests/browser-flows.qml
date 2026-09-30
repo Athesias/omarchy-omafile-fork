@@ -268,6 +268,51 @@ ShellRoot {
         tryVerify(function () { return browser.statusText === "" }, 5000, "status messages fade out")
       }
 
+      function count(name) {
+        var n = 0
+        for (var i = 0; i < mock.calls.length; i++) if (mock.calls[i].name === name) n++
+        return n
+      }
+
+      function test_3h_liveUpdates() {
+        waitRows()
+        browser.setView("list")
+        pane().setSortOrder("name", false)
+        pane().setCursor(1, false, false)
+        compare(pane().cursorEntry().name, "beta.png")
+        mock.calls = []
+        mock.statItems = { "/tmp/alpha.yml": { kind: "f", size: 999, mtime: 500, mode: 420, linkTarget: null },
+          "/tmp/new.txt": { kind: "f", size: 5, mtime: 600, mode: 420, linkTarget: null } }
+        mock.watchCallback({ names: ["alpha.yml", "new.txt"] })
+        tryVerify(function () { return names().indexOf("new.txt") >= 0 }, 2000, "new file appears")
+        compare(count("listDirectory"), 0, "named changes are patched, not re-listed")
+        compare(pane().rows.filter(function (r) { return r[0] === "alpha.yml" })[0][2], 999)
+        compare(pane().cursorEntry().name, "beta.png", "cursor stays on the same file")
+        compare(pane().selectedCount, 1)
+
+        mock.calls = []
+        for (var i = 0; i < 6; i++) mock.watchCallback({ names: ["alpha.yml"] })
+        wait(400)
+        verify(count("statPaths") <= 1, "bursts are throttled, got " + count("statPaths"))
+
+        mock.statItems = ({})
+        wait(1100)
+        mock.calls = []
+        mock.watchCallback({ names: ["new.txt"] })
+        tryVerify(function () { return names().indexOf("new.txt") < 0 }, 2500, "deleted file disappears")
+
+        wait(1100)
+        mock.calls = []
+        mock.watchCallback({ names: [] })
+        for (var t = 0; t < 20; t++) {
+          verify(pane().rows.length > 0, "a full refresh never blanks the view")
+          wait(60)
+        }
+        compare(count("listDirectory"), 1)
+        waitRows()
+        mock.statItems = ({})
+      }
+
       function test_4_mouseBackForward() {
         waitRows()
         pane().navigate("/tmp/docs")

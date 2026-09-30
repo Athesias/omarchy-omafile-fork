@@ -483,6 +483,38 @@ class ThumbnailTests(HelperTestCase):
     def test_relative_path_is_rejected(self):
         self.assertEqual(self.thumb("clip.mp4")[-1]["code"], "EINVAL")
 
+class PollWatchTests(HelperTestCase):
+    def setUp(self):
+        super().setUp()
+        self.helper.close()
+        self.helper = Helper(overrides={"force_poll": True})
+
+    def test_poll_watch_names_what_changed(self):
+        keep = self.path("keep.txt")
+        grow = self.path("grow.bin")
+        for p in (keep, grow):
+            with open(p, "w") as f:
+                f.write("x")
+        req = self.next_id()
+        self.helper.send({"id": req, "op": "watch", "path": self.root})
+        time.sleep(2.3)
+        with open(grow, "a") as f:
+            f.write("more data")
+        with open(self.path("new.txt"), "w") as f:
+            f.write("n")
+        deadline = time.time() + 6
+        changed = None
+        while time.time() < deadline and changed is None:
+            try:
+                obj = self.helper.q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            if obj.get("id") == req and obj.get("t") == "changed":
+                changed = obj
+        self.assertIsNotNone(changed, "poll watch reported a change")
+        self.assertEqual(changed["names"], ["grow.bin", "new.txt"])
+        self.helper.send({"id": self.next_id(), "op": "unwatch", "path": self.root})
+
 class SymlinkTests(HelperTestCase):
     def test_symlink_kinds(self):
         target_dir = self.path("realdir")

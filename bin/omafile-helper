@@ -285,7 +285,9 @@ def poll_loop(handle):
         except OSError:
             snap = None
         if last_snapshot is not None and snap is not None and snap != last_snapshot:
-            emit({"id": handle.req_id, "t": "changed", "path": to_str(handle.path_bytes), "names": []})
+            changed = [n for n in set(snap) | set(last_snapshot) if snap.get(n) != last_snapshot.get(n)]
+            names = sorted(to_str(n) for n in changed) if len(changed) <= 200 else []
+            emit({"id": handle.req_id, "t": "changed", "path": to_str(handle.path_bytes), "names": names})
         if snap is not None:
             last_snapshot = snap
 

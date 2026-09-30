@@ -347,6 +347,28 @@ function isAncestor(ancestorPath, path) {
   return p.indexOf(a + '/') === 0;
 }
 
+function selectionSummary(entries) {
+  var list = entries || [];
+  if (list.length === 0) return '';
+  if (list.length === 1) {
+    var one = list[0];
+    return '\u201c' + one.name + '\u201d selected' + (one.isDir ? '' : ' (' + formatSize(Number(one.size) || 0) + ')');
+  }
+  var bytes = 0;
+  var files = 0;
+  var dirs = 0;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].isDir) dirs++;
+    else {
+      files++;
+      bytes += Number(list[i].size) || 0;
+    }
+  }
+  var text = formatCount(list.length, 'item selected', 'items selected');
+  if (files > 0) text += ' (' + formatSize(bytes) + (dirs > 0 ? ' in ' + formatCount(files, 'file', 'files') : '') + ')';
+  return text;
+}
+
 function trashRootOf(path, homeTrash) {
   var raw = String(path || '');
   if (raw === '' || raw.charAt(0) !== '/') return '';

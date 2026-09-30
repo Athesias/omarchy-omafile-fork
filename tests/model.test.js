@@ -532,3 +532,14 @@ test('trash item names only cover the top level of a trash', function () {
   assert.deepEqual(Array.from(Model.trashItemNames(paths, home)), ['a.txt', 'd.1.txt']);
 });
 
+test('selection summary shows the size of the selected files', function () {
+  var file = function (name, size) { return { name: name, size: size, isDir: false }; };
+  var dir = { name: 'docs', size: 0, isDir: true };
+  assert.equal(Model.selectionSummary([]), '');
+  assert.equal(Model.selectionSummary([file('clip.mp4', 2048)]), '\u201cclip.mp4\u201d selected (' + Model.formatSize(2048) + ')');
+  assert.equal(Model.selectionSummary([dir]), '\u201cdocs\u201d selected');
+  assert.equal(Model.selectionSummary([file('a', 1000), file('b', 2000)]), '2 items selected (' + Model.formatSize(3000) + ')');
+  assert.equal(Model.selectionSummary([file('a', 1000), dir]), '2 items selected (' + Model.formatSize(1000) + ' in 1 file)');
+  assert.equal(Model.selectionSummary([dir, dir]), '2 items selected');
+});
+

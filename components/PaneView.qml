@@ -50,6 +50,10 @@ Item {
   property int _generation: 0
   readonly property bool virtualView: pane.path === "recent:"
   property int _listId: 0
+  property int _softId: 0
+  property var _changedNames: ({})
+  property bool _changedAll: false
+  property real _lastChangeApplied: 0
   property int _watchId: 0
   property string _watchPath: ""
   property var _pendingChunks: []
@@ -403,7 +407,7 @@ Item {
         pane.statusChanged()
       })
 
-    rewatch()
+    if (!_watchId || _watchPath !== pane.path) rewatch()
   }
 
   function flushChunks() {
@@ -439,19 +443,105 @@ Item {
     if (!service) return
     if (_watchId) service.unwatch(_watchId, _watchPath)
     _watchPath = pane.path
-    _watchId = service.watchDirectory(pane.path, function () { refreshTimer.restart() })
+    _watchId = service.watchDirectory(pane.path, function (m) { pane.noteChanges(m) })
+  }
+
+  function noteChanges(m) {
+    var names = m && m.names ? m.names : []
+    if (names.length === 0 || names.length > 200) _changedAll = true
+    else for (var i = 0; i < names.length; i++) _changedNames[String(names[i])] = true
+    if (refreshTimer.running) return
+    refreshTimer.interval = Date.now() - _lastChangeApplied < 1000 ? 1000 : 180
+    refreshTimer.start()
+  }
+
+  function applyChanges() {
+    _lastChangeApplied = Date.now()
+    var all = _changedAll
+    var names = Object.keys(_changedNames)
+    _changedAll = false
+    _changedNames = ({})
+    if (pane.virtualView || pane.searching || pane.loading) return
+    if (all) refresh()
+    else if (names.length > 0) patchEntries(names)
   }
 
   function refresh() {
-    var keepSelection = ({})
-    for (var k in selection) keepSelection[k] = selection[k]
-    var keepCursor = cursorIndex
-    var restore = function () {
-      pane.selection = keepSelection
-      if (keepCursor >= 0 && keepCursor < pane.rows.length) pane.cursorIndex = keepCursor
+    if (!service || !pane.path) return
+    if (pane.virtualView || pane.searching) {
+      reload()
+      return
     }
-    reload()
-    Qt.callLater(restore)
+    if (_softId) service.cancel(_softId)
+    var path = pane.path
+    var generation = pane._generation
+    var buffer = []
+    _softId = service.listDirectory(path, pane.showHidden,
+      function (chunk) {
+        for (var i = 0; i < chunk.length; i++) buffer.push(chunk[i])
+      },
+      function () {
+        pane._softId = 0
+        if (generation !== pane._generation || path !== pane.path) return
+        pane.replaceEntries(buffer)
+      },
+      function (msg) {
+        pane._softId = 0
+        if (String(msg.code || "") === "ECANCELED") return
+        if (generation !== pane._generation || path !== pane.path) return
+        pane.reload()
+      })
+  }
+
+  function patchEntries(names) {
+    var path = pane.path
+    var generation = pane._generation
+    var paths = names.map(function (n) { return Model.joinPath(path, n) })
+    service.statPaths(paths, function (items) {
+      if (generation !== pane._generation || path !== pane.path) return
+      var byName = {}
+      for (var i = 0; i < items.length; i++) byName[names[i]] = items[i]
+      var next = []
+      var seen = {}
+      for (var j = 0; j < pane.entries.length; j++) {
+        var raw = pane.entries[j]
+        var item = byName[raw[0]]
+        seen[raw[0]] = true
+        if (!item) next.push(raw)
+        else if (!item.error) next.push([raw[0], item.kind, item.size, item.mtime, item.mode, item.linkTarget])
+      }
+      for (var k = 0; k < names.length; k++) {
+        var name = names[k]
+        var fresh = byName[name]
+        if (seen[name] || !fresh || fresh.error) continue
+        if (!pane.showHidden && name.charAt(0) === ".") continue
+        next.push([name, fresh.kind, fresh.size, fresh.mtime, fresh.mode, fresh.linkTarget])
+      }
+      pane.replaceEntries(next)
+    })
+  }
+
+  function replaceEntries(list) {
+    var view = activeView()
+    var keepY = view.contentY
+    var keepSelection = ({})
+    for (var k in selection) if (selection[k]) keepSelection[k] = true
+    var cursorName = cursorIndex >= 0 && cursorIndex < rows.length ? rows[cursorIndex][0] : ""
+    entries = list
+    rebuild()
+    var nextSelection = ({})
+    var nextCursor = -1
+    for (var i = 0; i < rows.length; i++) {
+      var name = rows[i][0]
+      if (keepSelection[name]) nextSelection[name] = true
+      if (name === cursorName) nextCursor = i
+    }
+    selection = nextSelection
+    if (nextCursor >= 0) cursorIndex = nextCursor
+    view.contentY = Math.max(0, Math.min(keepY, view.contentHeight - view.height))
+    Qt.callLater(function () {
+      view.contentY = Math.max(0, Math.min(keepY, view.contentHeight - view.height))
+    })
   }
 
   function setCursor(index, extend, toggle) {
@@ -630,7 +720,7 @@ Item {
     id: refreshTimer
     interval: 180
     repeat: false
-    onTriggered: pane.refresh()
+    onTriggered: pane.applyChanges()
   }
 
   readonly property color fg: Color.foreground

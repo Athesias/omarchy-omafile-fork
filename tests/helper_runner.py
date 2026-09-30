@@ -29,4 +29,6 @@ def test_program(name):
     return real_program(name)
 
 helper.trusted_program = test_program
+if options.get("force_poll"):
+    helper.INOTIFY_AVAILABLE = False
 helper.main()

@@ -1910,7 +1910,7 @@ Item {
               if (p.loading)
                 return Model.formatCount(p.rows.length, "item", "items") + ", reading"
               if (p.selectedCount > 0)
-                return Model.formatCount(p.selectedCount, "item selected", "items selected")
+                return Model.selectionSummary(p.selectedEntries)
               if (p.searching)
                 return Model.formatCount(p.rows.length, "match", "matches")
                   + (p.searchTruncated ? " (truncated)" : "")
