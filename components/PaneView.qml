@@ -244,10 +244,20 @@ Item {
       pane.searchQuery = ""
     }
     if (recordHistory !== false) pushHistory(next)
-    pane.path = next
+    enterPath(next)
     reload()
     pane.navigated(next)
     if (service) service.noteRecent(next)
+  }
+
+  // Drop the old rows before the path changes, or their delegates briefly
+  // resolve old names against the new folder and load files that aren't there
+  function enterPath(next) {
+    if (next !== pane.path) {
+      rows = []
+      entries = []
+    }
+    pane.path = next
   }
 
   function pushHistory(next) {
@@ -261,7 +271,7 @@ Item {
   function goBack() {
     if (!canGoBack) return
     historyIndex = historyIndex - 1
-    pane.path = history[historyIndex]
+    enterPath(history[historyIndex])
     reload()
     pane.navigated(pane.path)
   }
@@ -269,7 +279,7 @@ Item {
   function goForward() {
     if (!canGoForward) return
     historyIndex = historyIndex + 1
-    pane.path = history[historyIndex]
+    enterPath(history[historyIndex])
     reload()
     pane.navigated(pane.path)
   }
