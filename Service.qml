@@ -733,8 +733,13 @@ Item {
 
   function openTerminal(path) {
     var configured = String(setting("terminal", "") || "").trim()
-    if (configured) Quickshell.execDetached(["sh", "-c", configured, "omafile"])
-    else Quickshell.execDetached(["xdg-terminal-exec"])
+    if (configured) Quickshell.execDetached(["sh", "-c", "cd \"$1\" && exec " + configured, "omafile", path])
+    else Quickshell.execDetached(["setsid", "uwsm-app", "--", "xdg-terminal-exec", "--dir=" + path])
+  }
+
+  function openClaude(path) {
+    Quickshell.execDetached(["setsid", "uwsm-app", "--", "xdg-terminal-exec", "--dir=" + path,
+      "bash", "-c", "claude; exec bash"])
   }
 
   function openEditor(path) {
@@ -937,6 +942,14 @@ Item {
         if (text) root.helperError = text
       }
     }
+  }
+
+  property bool claudeAvailable: false
+
+  property Process claudeCheck: Process {
+    command: ["sh", "-c", "command -v claude"]
+    running: true
+    onExited: function (code) { root.claudeAvailable = code === 0 }
   }
 
   property Process portalStatus: Process {
