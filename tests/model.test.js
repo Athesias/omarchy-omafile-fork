@@ -543,3 +543,7 @@ test('selection summary shows the size of the selected files', function () {
   assert.equal(Model.selectionSummary([dir, dir]), '2 items selected');
 });
 
+
+test('bookmark drops decode only unique local file URLs', function () {
+  assert.deepEqual(Array.from(Model.localPathsFromUrls(['file:///tmp/a%20b', 'file://localhost/tmp/c', 'file://remote/tmp/d', 'https://example.com', 'file:///tmp/a%20b', 'file:///bad%E0%A4%A'])), ['/tmp/a b', '/tmp/c']);
+});

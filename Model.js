@@ -347,6 +347,38 @@ function isAncestor(ancestorPath, path) {
   return p.indexOf(a + '/') === 0;
 }
 
+function fileUrlToPath(url) {
+  var s = String(url || '');
+  if (s.indexOf('file://') !== 0) return '';
+  var rest = s.slice(7);
+  if (rest.charAt(0) !== '/') {
+    var slash = rest.indexOf('/');
+    var host = slash < 0 ? rest : rest.slice(0, slash);
+    if (host !== '' && host !== 'localhost') return '';
+    rest = slash < 0 ? '/' : rest.slice(slash);
+  }
+  var cut = rest.search(/[?#]/);
+  if (cut >= 0) rest = rest.slice(0, cut);
+  try {
+    return normalizePath(decodeURIComponent(rest));
+  } catch (e) {
+    return '';
+  }
+}
+
+function localPathsFromUrls(urls) {
+  var out = [];
+  var seen = {};
+  var list = urls || [];
+  for (var i = 0; i < list.length; i++) {
+    var p = fileUrlToPath(list[i]);
+    if (p === '' || seen[p]) continue;
+    seen[p] = true;
+    out.push(p);
+  }
+  return out;
+}
+
 function selectionSummary(entries) {
   var list = entries || [];
   if (list.length === 0) return '';

@@ -84,6 +84,11 @@ QtObject {
   }
   function toggleHiddenDrive(key) { record("toggleHiddenDrive", [key]) }
   function togglePinned(path) { record("togglePinned", [path]) }
+  property var bookmarkLabels: ({})
+  function bookmarkLabel(path) { return bookmarkLabels[path] || String(path).split("/").pop() }
+  function addBookmarks(paths) { record("addBookmarks", [paths]); pinned = pinned.concat(paths); return paths.length }
+  function renameBookmark(path, label) { record("renameBookmark", [path, label]) }
+  function forgetServer(uri) { record("forgetServer", [uri]) }
   function disconnectServer(path, onDone, onError) { record("disconnectServer", [path]) }
   function copyToClipboardText(text) { record("copyToClipboardText", [text]) }
   function emptyTrash(onDone) { record("emptyTrash", []); trashCount = 0; if (onDone) onDone({}) }

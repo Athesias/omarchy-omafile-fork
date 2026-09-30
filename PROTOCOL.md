@@ -284,6 +284,19 @@ fails with `EINVAL`.
 Replies `{"t": "thumbtypes", "exts": ["avi", "mkv", "mp4", "pdf", ...]}` then `done`:
 the lowercase file extensions some installed thumbnailer can handle.
 
+### bookmarks, setbookmarks
+
+```
+{"id": N, "op": "bookmarks"}
+{"id": N, "op": "setbookmarks", "items": [{"path": "/home/me/Projects", "label": "Work"}]}
+```
+
+`bookmarks` replies `{"t": "bookmarks", "items": [{"path": P, "label": L}], "file": F, "dir": D}`
+then `done`, reading the GTK bookmarks file `$XDG_CONFIG_HOME/gtk-3.0/bookmarks` that GNOME Files
+and the file chooser share. Only local `file://` entries are returned. `setbookmarks` rewrites the
+file atomically with the given folders in order, and keeps every line it does not manage, such as
+`sftp://` bookmarks, after them.
+
 ### freespace
 
 ```

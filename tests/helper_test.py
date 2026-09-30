@@ -515,6 +515,40 @@ class PollWatchTests(HelperTestCase):
         self.assertEqual(changed["names"], ["grow.bin", "new.txt"])
         self.helper.send({"id": self.next_id(), "op": "unwatch", "path": self.root})
 
+class BookmarkTests(HelperTestCase):
+    def setUp(self):
+        super().setUp()
+        self.helper.close()
+        self.config = tempfile.mkdtemp()
+        self.helper = Helper(env={"XDG_CONFIG_HOME": self.config})
+        self.file = os.path.join(self.config, "gtk-3.0", "bookmarks")
+
+    def tearDown(self):
+        super().tearDown()
+        shutil.rmtree(self.config, ignore_errors=True)
+
+    def read(self):
+        msgs = self.helper.call({"id": self.next_id(), "op": "bookmarks"})
+        return [m for m in msgs if m["t"] == "bookmarks"][0]
+
+    def test_reads_gtk_bookmarks_and_keeps_other_lines(self):
+        os.makedirs(os.path.dirname(self.file))
+        with open(self.file, "w") as f:
+            f.write("file:///home/me/Projects Projects\nsftp://laptop/home/me Laptop\nfile:///tmp/my%20docs\n")
+        items = self.read()["items"]
+        self.assertEqual(items, [{"path": "/home/me/Projects", "label": "Projects"},
+                                 {"path": "/tmp/my docs", "label": ""}])
+        msgs = self.helper.call({"id": self.next_id(), "op": "setbookmarks", "items": [
+            {"path": "/tmp/my docs", "label": "Docs"}, {"path": "/srv/a b#c", "label": ""}]})
+        self.assertEqual(msgs[-1]["t"], "done", msgs)
+        with open(self.file) as f:
+            self.assertEqual(f.read(), "file:///tmp/my%20docs Docs\nfile:///srv/a%20b%23c\nsftp://laptop/home/me Laptop\n")
+
+    def test_missing_file_is_empty_and_folder_is_created(self):
+        info = self.read()
+        self.assertEqual(info["items"], [])
+        self.assertTrue(os.path.isdir(info["dir"]))
+
 class SymlinkTests(HelperTestCase):
     def test_symlink_kinds(self):
         target_dir = self.path("realdir")

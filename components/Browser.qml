@@ -478,7 +478,8 @@ Item {
     dialogError = ""
     appFilter = ""
     Qt.callLater(function () {
-      if (dialogMode === "rename" || dialogMode === "newfolder" || dialogMode === "newfile" || dialogMode === "path") {
+      if (dialogMode === "rename" || dialogMode === "newfolder" || dialogMode === "newfile" || dialogMode === "path"
+          || dialogMode === "bookmarkname") {
         dialogField.text = root.dialogValue
         dialogField.forceActiveFocus()
         if (dialogMode === "rename") {
@@ -535,6 +536,12 @@ Item {
     if (dialogMode === "path") {
       closeDialog()
       p.navigate(value)
+      return
+    }
+    if (dialogMode === "bookmarkname") {
+      var place = dialogPayload
+      closeDialog()
+      if (place && place.path) service.renameBookmark(place.path, value)
       return
     }
     if (!value) {
@@ -835,6 +842,7 @@ Item {
     if (split) items.push({ key: "place:other", label: "Open in the other pane", glyph: Icons.actionGlyph("split") })
     var extra = []
     if (row.bookmark === true) {
+      extra.push({ key: "place:renamebookmark", label: "Rename bookmark", glyph: Icons.actionGlyph("rename") })
       extra.push({ key: "place:unbookmark", label: "Remove bookmark", glyph: Icons.actionGlyph("close") })
     }
     if (row.mounted === true)
@@ -875,6 +883,7 @@ Item {
       activePane().navigate(path)
     }
     else if (action === "unbookmark") service.togglePinned(path)
+    else if (action === "renamebookmark") showDialog("bookmarkname", "Rename bookmark", String(row.label || ""), row)
     else if (action === "forget") {
       service.forgetServer(String(row.uri || ""))
       statusText = "Forgot " + String(row.label || row.uri || "")
@@ -888,6 +897,19 @@ Item {
     else if (action === "properties") showPlaceProperties(row)
     else if (action === "connect") showDialog("connect", "Connect to a server", String(row.uri || ""), null)
     else if (action === "editserver") showDialog("connect", "Connect to a server", String(row.uri || ""), null)
+  }
+  function bookmarkFolders(paths) {
+    service.statPaths(paths, function (items) {
+      var dirs = []
+      for (var i = 0; i < items.length; i++)
+        if (items[i] && !items[i].error && (items[i].kind === "d" || items[i].kind === "L")) dirs.push(String(items[i].path))
+      if (dirs.length === 0) {
+        root.statusText = "Only folders can be bookmarked"
+        return
+      }
+      var added = service.addBookmarks(dirs)
+      root.statusText = added > 0 ? Model.formatCount(added, "folder bookmarked", "folders bookmarked") : "Already bookmarked"
+    })
   }
   function showPlaceProperties(row) {
     var path = String(row.path || "")
@@ -1760,6 +1782,7 @@ Item {
           onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
           onHideDrive: function (key) { root.service.toggleHiddenDrive(key) }
           onPlaceMenuRequested: function (row, x, y) { root.openPlaceMenu(row, x, y) }
+          onBookmarkDropped: function (paths) { root.bookmarkFolders(paths) }
           onShowAllDrives: root.showDialog("settings", "Settings", "", null)
           onConnectServer: function (uri) {
             root.showDialog("connect", "Connect to a server", String(uri || ""), null)
@@ -2101,8 +2124,8 @@ Item {
           anchors.right: parent.right
           anchors.rightMargin: Style.space(10)
           anchors.verticalCenter: parent.verticalCenter
-          visible: root.service !== null && root.service.helperError !== ""
-          text: root.service ? root.service.helperError : ""
+          visible: text !== ""
+          text: root.service ? (root.service.bookmarksError || root.service.helperError || "") : ""
           color: Color.urgent
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
@@ -2508,9 +2531,11 @@ Item {
 
           TextField {
             id: dialogField
+            objectName: "dialogField"
             width: parent.width
             visible: root.dialogMode === "rename" || root.dialogMode === "newfolder"
               || root.dialogMode === "newfile" || root.dialogMode === "path"
+              || root.dialogMode === "bookmarkname"
             onAccepted: root.submitDialog()
             Keys.onEscapePressed: root.closeDialog()
           }

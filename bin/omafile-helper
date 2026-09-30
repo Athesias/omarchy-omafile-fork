@@ -1679,6 +1679,79 @@ def op_thumbtypes(req):
     emit({"id": req_id, "t": "thumbtypes", "exts": exts})
     send_done(req_id)
 
+def gtk_bookmarks_file():
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
+    return os.path.join(base, "gtk-3.0", "bookmarks")
+
+def read_bookmark_lines():
+    try:
+        with open(gtk_bookmarks_file(), "rb") as f:
+            raw = f.read().decode("utf-8", "surrogateescape")
+    except FileNotFoundError:
+        return []
+    out = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        uri, _, label = line.partition(" ")
+        out.append({"uri": uri, "label": label.strip(), "path": uri_to_path(uri)})
+    return out
+
+def op_bookmarks(req):
+    req_id = req["id"]
+    try:
+        os.makedirs(os.path.dirname(gtk_bookmarks_file()), exist_ok=True)
+    except OSError:
+        pass
+    try:
+        items = read_bookmark_lines()
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e), gtk_bookmarks_file())
+        return
+    emit({"id": req_id, "t": "bookmarks", "file": gtk_bookmarks_file(),
+          "dir": os.path.dirname(gtk_bookmarks_file()),
+          "items": [{"path": i["path"], "label": i["label"]} for i in items if i["path"]]})
+    send_done(req_id)
+
+def op_setbookmarks(req):
+    req_id = req["id"]
+    items = req.get("items")
+    if not isinstance(items, list):
+        send_error(req_id, "EINVAL", "items required")
+        return
+    lines = []
+    seen = set()
+    for item in items:
+        path = item.get("path") if isinstance(item, dict) else None
+        if not isinstance(path, str) or not path.startswith("/") or path in seen:
+            continue
+        seen.add(path)
+        uri = "file://" + urllib.parse.quote(to_bytes(os.path.normpath(path)), safe=THUMB_URI_SAFE)
+        label = str(item.get("label") or "").replace("\n", " ").strip()
+        lines.append(uri + (" " + label if label else ""))
+    try:
+        existing = read_bookmark_lines()
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e), gtk_bookmarks_file())
+        return
+    for other in existing:
+        if not other["path"]:
+            lines.append(other["uri"] + (" " + other["label"] if other["label"] else ""))
+    target = gtk_bookmarks_file()
+    folder = os.path.dirname(target)
+    try:
+        os.makedirs(folder, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".bookmarks-", dir=folder)
+        with os.fdopen(fd, "wb") as f:
+            f.write(("\n".join(lines) + ("\n" if lines else "")).encode("utf-8", "surrogateescape"))
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, target)
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e), target)
+        return
+    send_done(req_id, count=len(lines))
+
 def op_freespace(req):
     req_id = req["id"]
     path = req.get("path")
@@ -2714,6 +2787,8 @@ SIMPLE_OPS = {
     "stat": op_stat,
     "peek": op_peek,
     "thumbtypes": op_thumbtypes,
+    "bookmarks": op_bookmarks,
+    "setbookmarks": op_setbookmarks,
     "trash": op_trash,
     "delete": op_delete,
     "restore": op_restore,

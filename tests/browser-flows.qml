@@ -339,6 +339,31 @@ ShellRoot {
         browser.closeMenu()
       }
 
+      function test_3j_bookmarks() {
+        mock.calls = []
+        mock.statItems = { "/tmp/docs": { kind: "d", size: 0, mtime: 1, mode: 16877, linkTarget: null },
+          "/tmp/alpha.yml": { kind: "f", size: 3, mtime: 1, mode: 420, linkTarget: null } }
+        browser.bookmarkFolders(["/tmp/docs", "/tmp/alpha.yml"])
+        compare(mock.called("addBookmarks").args[0], ["/tmp/docs"], "only folders are bookmarked")
+        compare(browser.statusText, "1 folder bookmarked")
+        mock.statItems = ({})
+
+        var row = { key: "pinned", bookmark: true, label: "docs", path: "/tmp/docs" }
+        verify(menuLabels(browser.placeMenuActions(row)).indexOf("Rename bookmark") >= 0)
+        browser.runPlaceAction("renamebookmark", row)
+        compare(browser.dialogMode, "bookmarkname")
+        var field = findChild(browser, "dialogField")
+        verify(field !== null)
+        tryCompare(field, "text", "docs")
+        field.text = "Project docs"
+        browser.submitDialog()
+        compare(mock.called("renameBookmark").args[0], "/tmp/docs")
+        compare(mock.called("renameBookmark").args[1], "Project docs")
+        compare(browser.dialogMode, "")
+
+        mock.pinned = []
+      }
+
       function test_4_mouseBackForward() {
         waitRows()
         pane().navigate("/tmp/docs")

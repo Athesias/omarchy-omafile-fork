@@ -32,6 +32,18 @@ Item {
   property real trashBytes: 0
   property var recent: []
   property var pinned: []
+  property var bookmarkLabels: ({})
+  property bool bookmarksMigrated: false
+  property bool bookmarksLoaded: false
+  property var _legacyPinned: []
+  property bool bookmarksDirty: false
+  property string bookmarksError: ""
+  property bool _bookmarkWritePending: false
+  property bool _bookmarkReadPending: false
+  property int _bookmarkRevision: 0
+  property int _bookmarkGeneration: 0
+  property bool _stateLoaded: false
+  property int _bookmarkWatchId: 0
   property var hiddenDrives: []
   property var servers: []
   property var session: null
@@ -179,6 +191,17 @@ Item {
 
   function handleHelperExit() {
     helperReady = false
+    if (_bookmarkReadPending || _bookmarkWritePending)
+      bookmarksError = "Bookmarks could not be synced: file helper stopped. Local bookmarks are saved."
+    _bookmarkGeneration++
+    _bookmarkReadPending = false
+    _bookmarkWritePending = false
+    _bookmarkWatchId = 0
+    bookmarksLoaded = false
+    _queue = _queue.filter(function (line) {
+      var op = JSON.parse(line).op
+      return op !== "bookmarks" && op !== "setbookmarks"
+    })
     _pending = ({})
     _thumbWaiting = ({})
     if (helperRestarts < 8) {
@@ -974,7 +997,148 @@ Item {
     }
     if (!found) next.push(path)
     pinned = next
+    writeBookmarks()
+  }
+
+  function addBookmarks(paths) {
+    var next = pinned.slice()
+    var added = 0
+    for (var i = 0; i < paths.length; i++) {
+      if (next.indexOf(paths[i]) >= 0) continue
+      next.push(paths[i])
+      added++
+    }
+    if (added === 0) return 0
+    pinned = next
+    writeBookmarks()
+    return added
+  }
+
+  function bookmarkLabel(path) {
+    var label = bookmarkLabels[path]
+    return label ? String(label) : (Model.basename(String(path)) || "/")
+  }
+
+  function renameBookmark(path, label) {
+    var next = {}
+    for (var k in bookmarkLabels) next[k] = bookmarkLabels[k]
+    var clean = String(label || "").trim()
+    if (clean === "" || clean === Model.basename(String(path))) delete next[path]
+    else next[path] = clean
+    bookmarkLabels = next
+    writeBookmarks()
+  }
+
+  function writeBookmarks() {
+    bookmarksDirty = true
+    _bookmarkRevision++
     persist()
+    if (!bookmarksLoaded) refreshBookmarks()
+    else flushBookmarks()
+  }
+
+  function flushBookmarks() {
+    if (_bookmarkWritePending || !bookmarksLoaded || !bookmarksDirty) return
+    var items = []
+    for (var i = 0; i < pinned.length; i++)
+      items.push({ path: pinned[i], label: bookmarkLabels[pinned[i]] || "" })
+    var revision = _bookmarkRevision
+    var generation = _bookmarkGeneration
+    _bookmarkWritePending = true
+    request({ op: "setbookmarks", items: items }, {
+      onDone: function () {
+        if (generation !== root._bookmarkGeneration) return
+        root._bookmarkWritePending = false
+        if (revision !== root._bookmarkRevision) {
+          root.flushBookmarks()
+          return
+        }
+        root.bookmarksDirty = false
+        root.bookmarksMigrated = true
+        root._legacyPinned = []
+        root.bookmarksError = ""
+        root.persist()
+      },
+      onError: function (m) {
+        if (generation !== root._bookmarkGeneration) return
+        root._bookmarkWritePending = false
+        root.bookmarksError = "Bookmarks could not be saved: " + String(m.message || m.code || "unknown error")
+        root.persist()
+      }
+    })
+  }
+
+  function refreshBookmarks() {
+    if (!_stateLoaded || _bookmarkReadPending || _bookmarkWritePending) return
+    if (bookmarksLoaded && bookmarksDirty) {
+      flushBookmarks()
+      return
+    }
+    var generation = _bookmarkGeneration
+    var revision = _bookmarkRevision
+    var snapshot = null
+    _bookmarkReadPending = true
+    request({ op: "bookmarks" }, {
+      onData: function (m) {
+        if (m.t === "bookmarks") snapshot = m
+      },
+      onError: function (m) {
+        if (generation !== root._bookmarkGeneration) return
+        root._bookmarkReadPending = false
+        root.bookmarksError = "Bookmarks could not be read: " + String(m.message || m.code || "unknown error")
+      },
+      onDone: function () {
+        if (generation !== root._bookmarkGeneration) return
+        root._bookmarkReadPending = false
+        if (revision !== root._bookmarkRevision) {
+          root.refreshBookmarks()
+          return
+        }
+        if (!snapshot) {
+          root.bookmarksError = "Bookmarks could not be read: missing response"
+          return
+        }
+        var paths = []
+        var labels = {}
+        var list = snapshot.items || []
+        for (var i = 0; i < list.length; i++) {
+          var path = String(list[i].path || "")
+          if (!path || paths.indexOf(path) >= 0) continue
+          paths.push(path)
+          if (list[i].label) labels[path] = String(list[i].label)
+        }
+        if (root.bookmarksDirty && root.bookmarksMigrated) {
+          paths = root.pinned.slice()
+          labels = root.bookmarkLabels
+        } else if (!root.bookmarksMigrated) {
+          for (var j = 0; j < root.pinned.length; j++) {
+            var local = root.pinned[j]
+            if (paths.indexOf(local) < 0) paths.push(local)
+            if (root.bookmarkLabels[local]) labels[local] = root.bookmarkLabels[local]
+          }
+        }
+        root.bookmarksLoaded = true
+        root.pinned = paths
+        root.bookmarkLabels = labels
+        root.bookmarksError = ""
+        if (!root.bookmarksMigrated || root.bookmarksDirty) {
+          root.bookmarksDirty = true
+          root.persist()
+          root.flushBookmarks()
+        } else root.persist()
+        if (!root._bookmarkWatchId && snapshot.dir) {
+          root._bookmarkWatchId = root.watchDirectory(String(snapshot.dir), function (change) {
+            var names = change.names || []
+            if (names.length === 0 || names.indexOf("bookmarks") >= 0) bookmarkReloadTimer.restart()
+          })
+        }
+      }
+    })
+  }
+
+  property Timer bookmarkReloadTimer: Timer {
+    interval: 250
+    onTriggered: root.refreshBookmarks()
   }
 
   function openWindow(path) {
@@ -1047,7 +1211,10 @@ Item {
     var payload = {
       version: 1,
       recent: recent,
+      bookmarksMigrated: bookmarksMigrated,
       pinned: pinned,
+      bookmarkLabels: bookmarkLabels,
+      bookmarksDirty: bookmarksDirty,
       hiddenDrives: hiddenDrives,
       servers: servers,
       previousFileManager: previousFileManager,
@@ -1057,6 +1224,12 @@ Item {
   }
 
   function loadState(raw) {
+    applyState(raw)
+    _stateLoaded = true
+    refreshBookmarks()
+  }
+
+  function applyState(raw) {
     var parsed = null
     try {
       parsed = JSON.parse(String(raw || "{}"))
@@ -1065,7 +1238,15 @@ Item {
     }
     if (!parsed || typeof parsed !== "object") return
     if (parsed.recent) recent = parsed.recent
-    if (parsed.pinned) pinned = parsed.pinned
+    if (parsed.pinned && !bookmarksLoaded) {
+      pinned = parsed.pinned
+      _legacyPinned = parsed.pinned.slice()
+    }
+    if (!bookmarksLoaded) {
+      bookmarksMigrated = parsed.bookmarksMigrated === true
+      bookmarksDirty = parsed.bookmarksDirty === true
+      if (parsed.bookmarkLabels) bookmarkLabels = parsed.bookmarkLabels
+    }
     if (parsed.hiddenDrives) hiddenDrives = parsed.hiddenDrives
     if (parsed.servers) servers = parsed.servers
     if (parsed.previousFileManager) previousFileManager = String(parsed.previousFileManager)
@@ -1102,6 +1283,7 @@ Item {
         root.helperReady = true
         root.helperError = ""
         Qt.callLater(root.drainQueue)
+        Qt.callLater(root.refreshBookmarks)
       } else {
         root.helperReady = false
       }

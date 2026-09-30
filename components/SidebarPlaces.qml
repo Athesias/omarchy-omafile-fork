@@ -85,6 +85,26 @@ Item {
   signal disconnectServer(string path)
   signal dropRequested(var urls, string dest)
   signal placeMenuRequested(var row, real x, real y)
+  signal bookmarkDropped(var paths)
+
+  function acceptsBookmark(drag) {
+    var paths = dropPaths(drag)
+    if (paths.length === 0) return false
+    var pinned = service ? service.pinned : []
+    for (var i = 0; i < paths.length; i++) if (pinned.indexOf(paths[i]) < 0) return true
+    return false
+  }
+
+  function handleBookmarkDrop(drop) {
+    var paths = dropPaths(drop)
+    if (paths.length === 0) return
+    drop.accept(Qt.LinkAction)
+    sidebar.bookmarkDropped(paths)
+  }
+
+  function dropPaths(event) {
+    return event && event.hasUrls ? Model.localPathsFromUrls(event.urls) : []
+  }
 
   function usablePlace(value, homePath) {
     var p = String(value || "")
@@ -138,15 +158,17 @@ Item {
     out.push({ title: "Places", rows: places })
 
     var pinned = service ? service.pinned : []
-    if (pinned && pinned.length > 0) {
+    {
       var pins = []
       for (var p = 0; p < pinned.length; p++)
         pins.push({
           key: "pinned", bookmark: true,
-          label: Model.basename(String(pinned[p])) || "/",
+          label: service.bookmarkLabel ? service.bookmarkLabel(String(pinned[p])) : (Model.basename(String(pinned[p])) || "/"),
           path: String(pinned[p])
         })
-      out.push({ title: "Bookmarks", rows: pins })
+      if (pins.length === 0)
+        pins.push({ key: "pinned", label: "Drop folders here to bookmark", path: "", dropBookmark: true })
+      out.push({ title: "Bookmarks", rows: pins, bookmarkTarget: true })
     }
 
     var drives = (sidebar.showDrives && service) ? service.drives : []
@@ -241,9 +263,17 @@ Item {
               leftPadding: Style.space(12)
               topPadding: Style.space(8)
               bottomPadding: Style.space(3)
-              color: Util.alpha(Color.foreground, 0.4)
+              color: headerDrop.containsDrag ? Color.accent : Util.alpha(Color.foreground, 0.4)
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
+              DropArea {
+                id: headerDrop
+                anchors.fill: parent
+                enabled: modelData.bookmarkTarget === true
+                keys: ["text/uri-list"]
+                onEntered: function (drag) { if (!sidebar.acceptsBookmark(drag)) drag.accepted = false }
+                onDropped: function (drop) { sidebar.handleBookmarkDrop(drop) }
+              }
             }
 
             Repeater {
@@ -273,6 +303,14 @@ Item {
                   target: modelData.path && String(modelData.path).indexOf(":") < 0
                     && modelData.connect !== true && modelData.server !== true ? String(modelData.path) : ""
                   onFilesDropped: function (urls, dest) { sidebar.dropRequested(urls, dest) }
+                }
+
+                DropArea {
+                  anchors.fill: parent
+                  enabled: modelData.dropBookmark === true
+                  keys: ["text/uri-list"]
+                  onEntered: function (drag) { if (!sidebar.acceptsBookmark(drag)) drag.accepted = false }
+                  onDropped: function (drop) { sidebar.handleBookmarkDrop(drop) }
                 }
 
                 MouseArea {
@@ -341,6 +379,7 @@ Item {
                       ? Color.foreground : Util.alpha(Color.foreground, 0.75)
                     font.family: Style.font.family
                     font.pixelSize: Style.font.bodySmall
+                    font.italic: modelData.dropBookmark === true
                     elide: Text.ElideMiddle
                   }
 
