@@ -55,10 +55,10 @@ Item {
   function defaultTab(path) {
     return {
       path: path || startPath(),
-      view: service ? String(service.setting("defaultView", "list")) : "list",
-      sortBy: service ? String(service.setting("sortBy", "name")) : "name",
+      view: Model.normalizeViewMode(service ? String(service.settingNow("defaultView", "list")) : "list"),
+      sortBy: service ? String(service.settingNow("sortBy", "name")) : "name",
       descending: false,
-      hidden: service ? service.setting("showHidden", false) === true : false,
+      hidden: service ? service.settingNow("showHidden", false) === true : false,
       filter: ""
     }
   }
@@ -104,8 +104,8 @@ Item {
     p.descending = tab.descending === true
     p.filter = tab.filter || ""
     p.showHidden = tab.hidden === true
-    p.dirsFirst = service ? service.setting("sortDirsFirst", true) === true : true
-    p.thumbnails = service ? service.setting("thumbnails", true) !== false : true
+    p.dirsFirst = service ? service.settingNow("sortDirsFirst", true) === true : true
+    p.thumbnails = service ? service.settingNow("thumbnails", true) !== false : true
     p.ready = true
     p.navigate(tab.path, true)
   }
@@ -581,8 +581,8 @@ Item {
   function doTrash() {
     var paths = activePane().selectedPaths()
     if (paths.length === 0) return
-    if (service.setting("useTrash", true) !== true) return askDelete(paths)
-    if (service.setting("confirmTrash", true) !== true) return performTrash(paths)
+    if (service.settingNow("useTrash", true) !== true) return askDelete(paths)
+    if (service.settingNow("confirmTrash", true) !== true) return performTrash(paths)
     confirmAction = "trash"
     confirm.message = "Move " + Model.formatCount(paths.length, "item", "items") + " to trash?"
     confirm.confirmText = "Move to trash"
@@ -597,7 +597,7 @@ Item {
   function askDelete(paths) {
     var targets = paths || activePane().selectedPaths()
     if (targets.length === 0) return
-    if (service.setting("confirmDelete", true) !== true) return performDelete(targets)
+    if (service.settingNow("confirmDelete", true) !== true) return performDelete(targets)
     confirmAction = "delete"
     confirm.message = "Permanently delete " + Model.formatCount(targets.length, "item", "items") + "? This cannot be undone."
     confirm.confirmText = "Delete"
@@ -1518,7 +1518,7 @@ Item {
           visible: root.sidebarVisible
           service: root.service
           currentPath: root.activePane() ? root.activePane().path : ""
-          showDrives: root.service ? root.service.setting("showDrives", true) !== false : true
+          showDrives: root.service ? root.service.settingNow("showDrives", true) !== false : true
           onNavigate: function (target) {
             pathBar.endEdit()
             root.activePane().navigate(target)

@@ -100,7 +100,7 @@ Item {
   }
 
   function startPath() {
-    var configured = String(setting("homePath", "") || "").trim()
+    var configured = String(settingNow("homePath", "") || "").trim()
     if (configured) return Model.normalizePath(Model.expandTilde(configured, home))
     return home || "/"
   }
@@ -751,7 +751,7 @@ Item {
   }
 
   function openTerminal(path) {
-    var configured = String(setting("terminal", "") || "").trim()
+    var configured = String(settingNow("terminal", "") || "").trim()
     if (configured) Quickshell.execDetached(["sh", "-c", "cd \"$1\" && " + configured, "omafile", path])
     else Quickshell.execDetached(["setsid", "uwsm-app", "--", "xdg-terminal-exec", "--dir=" + path])
   }
@@ -762,7 +762,7 @@ Item {
   }
 
   function openEditor(path) {
-    var configured = String(setting("editor", "") || "").trim()
+    var configured = String(settingNow("editor", "") || "").trim()
     if (configured) Quickshell.execDetached(["sh", "-c", configured + " \"$1\"", "omafile", path])
     else Quickshell.execDetached(["omarchy-launch-editor", path])
   }
