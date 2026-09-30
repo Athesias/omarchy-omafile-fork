@@ -63,7 +63,7 @@ o.window({ class = "^org.quickshell$", title = "^Omafile$" }, { tag = "-default-
 
 ## Usage
 
-Super+E toggles the window. If it is already open it comes to the front. Escape closes it.
+Super+E toggles the window. If it is already open it comes to the front. Ctrl+Q closes it, and Escape closes the popup.
 
 Moving around is covered in [Keyboard](#keyboard); F1 shows the same list inside the window.
 
@@ -161,7 +161,7 @@ Omafile follows GNOME Files conventions, so shortcuts you already know work here
 
 | Keys | Action |
 |------|--------|
-| `Enter` | Open the selected item |
+| `Enter` / `Ctrl+O` / `Alt+Down` | Open the selected items, folders in new tabs when several are selected |
 | `Backspace` / `Alt+Up` | Go to the parent folder |
 | `Alt+Left` / `Alt+Right` | Back and forward |
 | Mouse back / forward | Back and forward |
@@ -184,6 +184,7 @@ Focus starts in the file list. Tab moves it to the sidebar, or to the other pane
 | `Delete` | Remove a bookmark or hide a drive, in the sidebar |
 | `Escape` | Leave the sidebar |
 | `Shift+F10` / `Menu` | Open the context menu on the current item |
+| `F10` | Open the menu for the folder itself |
 
 The context menu is a real focus target: arrows move through it, Enter or Space runs the highlighted entry, Escape closes it. Anything Omafile can do to a file is in there, so no action needs the mouse.
 
@@ -218,9 +219,13 @@ Undo covers trash, rename, move, copy and new file or folder. Undoing a trash pu
 
 | Keys | Action |
 |------|--------|
-| `Ctrl+T` / `Ctrl+W` | New tab and close tab |
+| `Ctrl+T` | New tab |
+| `Ctrl+W` | Close the tab, or the window when it is the last one |
+| `Ctrl+Shift+T` | Reopen the last closed tab |
 | `Ctrl+PageUp` / `Ctrl+PageDown` | Previous and next tab |
-| `Ctrl+Enter` | Open the folder under the cursor in a new tab |
+| `Ctrl+Shift+PageUp` / `Ctrl+Shift+PageDown` | Move the tab left or right |
+| `Alt+1` to `Alt+9` | Go to that tab |
+| `Ctrl+Enter` / middle click | Open a folder in a new tab |
 | `F6` | Split into two panes |
 | `Tab` | Switch the active pane, while split |
 | `Ctrl+Shift+C` / `Ctrl+Shift+M` | Copy and move to the other pane |
@@ -233,11 +238,12 @@ Undo covers trash, rename, move, copy and new file or folder. Undoing a trash pu
 | `Ctrl+3` / `Ctrl+4` | Compact and gallery |
 | `Space` | Preview the item under the cursor |
 | `Ctrl+H` | Show hidden files |
-| `Ctrl+B` | Show or hide the sidebar |
+| `F9` / `Ctrl+B` | Show or hide the sidebar |
 | `Ctrl+F`, or just type | Search in this folder |
+| `Ctrl+Shift+F` | Search your whole home folder |
 | `Ctrl+Comma` | Settings |
-| `F1` | The shortcut list |
-| `Ctrl+Q` / `Escape` | Close the window |
+| `F1` / `Ctrl+?` | The shortcut list |
+| `Ctrl+Q` | Close the window |
 
 Typing an ordinary character opens the search box with that character already typed, the way GNOME Files does.
 

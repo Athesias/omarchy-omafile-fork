@@ -62,6 +62,7 @@ Item {
   signal activated()
   signal navigated(string newPath)
   signal openRequested(var entry)
+  signal newTabRequested(string path)
   signal contextRequested(var entry, real sceneX, real sceneY)
   signal statusChanged()
 
@@ -498,6 +499,12 @@ Item {
       || e === "webp" || e === "bmp" || e === "svg" || e === "ico" || e === "avif"
   }
 
+  function middleOpen(entry) {
+    if (!entry) return
+    if (entry.isDir && !entry.isBroken) pane.newTabRequested(entry.path)
+    else pane.openRequested(entry)
+  }
+
   function openRow(row) {
     openEntry(Model.decodeEntry(row, pane.path))
   }
@@ -741,6 +748,7 @@ Item {
                 pane.contextRequested(row.entry, mouse.x + row.x, mouse.y + row.y)
                 return
               }
+              if (mouse.button === Qt.MiddleButton) { pane.middleOpen(row.entry); return }
               var extend = (mouse.modifiers & Qt.ShiftModifier) !== 0
               var toggle = (mouse.modifiers & Qt.ControlModifier) !== 0
               pane.setCursor(row.index, extend, toggle)
@@ -885,7 +893,7 @@ Item {
 
           MouseArea {
             anchors.fill: parent
-            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
             onPressed: function (mouse) {
               pane.activated()
               if (mouse.button === Qt.RightButton) {
@@ -893,11 +901,15 @@ Item {
                 pane.contextRequested(cell.entry, mouse.x + cell.x, mouse.y + cell.y)
                 return
               }
+              if (mouse.button === Qt.MiddleButton) { pane.middleOpen(cell.entry); return }
               var extend = (mouse.modifiers & Qt.ShiftModifier) !== 0
               var toggle = (mouse.modifiers & Qt.ControlModifier) !== 0
               pane.setCursor(cell.index, extend, toggle)
             }
-            onDoubleClicked: pane.openEntry(cell.entry)
+            onDoubleClicked: function (mouse) {
+              if (mouse.button !== Qt.LeftButton) return
+              pane.openEntry(cell.entry)
+            }
           }
 
           Row {

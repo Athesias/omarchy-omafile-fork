@@ -20,7 +20,10 @@ ShellRoot {
         if (!harness.passed) console.log("OMAFILE_BROWSER_FLOWS_FAILED")
         Qt.quit()
       }
-      function cleanup() { if (qtest_results.failed) console.log("FAILED_IN " + qtest_results.functionName) }
+      property int failures: 0
+      function cleanup() {
+        if (qtest_results.failed) { failures++; console.log("FAILED_IN " + qtest_results.functionName) }
+      }
       function pane() { return browser.activePane() }
       function names() { return pane().rows.map(function (r) { return r[0] }) }
       function waitRows() { tryVerify(function () { return pane().rows.length === 3 && !pane().loading }, 5000) }
@@ -176,6 +179,69 @@ ShellRoot {
         waitForRendering(browser)
         keyClick(Qt.Key_Escape)
         compare(mock.called("finishPick").args[0].ok, false)
+      }
+
+      SignalSpy { id: dismissSpy; target: browser; signalName: "dismissRequested" }
+
+      function test_9a_tabKeys() {
+        pane().navigate("/tmp")
+        waitRows()
+        compare(browser.tabsA.length, 1)
+        keyClick(Qt.Key_T, Qt.ControlModifier)
+        compare(browser.tabsA.length, 2)
+        pane().navigate("/tmp/docs")
+        tryVerify(function () { return pane().path === "/tmp/docs" })
+        keyClick(Qt.Key_W, Qt.ControlModifier)
+        compare(browser.tabsA.length, 1)
+        keyClick(Qt.Key_T, Qt.ShiftModifier | Qt.ControlModifier)
+        compare(browser.tabsA.length, 2, "closed tab restored")
+        compare(browser.activeA, 1)
+        tryVerify(function () { return pane().path === "/tmp/docs" })
+        keyClick(Qt.Key_1, Qt.AltModifier)
+        compare(browser.activeA, 0)
+        keyClick(Qt.Key_PageDown, Qt.ShiftModifier | Qt.ControlModifier)
+        compare(browser.activeA, 1, "tab moved right")
+        compare(browser.tabsA[0].path, "/tmp/docs")
+        keyClick(Qt.Key_W, Qt.ControlModifier)
+        compare(browser.tabsA.length, 1)
+        dismissSpy.clear()
+        keyClick(Qt.Key_W, Qt.ControlModifier)
+        compare(dismissSpy.count, 1, "Ctrl+W on the last tab closes the window")
+        dismissSpy.clear()
+        keyClick(Qt.Key_Escape)
+        compare(dismissSpy.count, 0, "Escape leaves the window open")
+        pane().navigate("/tmp")
+        waitRows()
+      }
+
+      function test_9b_openSeveral() {
+        waitRows()
+        mock.calls = []
+        pane().selectAll()
+        keyClick(Qt.Key_Return)
+        var opened = mock.calls.filter(function (c) { return c.name === "openExternally" })
+        compare(opened.length, 2, "both files open")
+        compare(browser.tabsA.length, 2, "the folder opens in a new tab")
+        keyClick(Qt.Key_W, Qt.ControlModifier)
+        pane().clearSelection()
+      }
+
+      function test_9c_folderMenu() {
+        waitRows()
+        keyClick(Qt.Key_F10)
+        verify(browser.menuOpen)
+        compare(browser.menuEntry, null)
+        keyClick(Qt.Key_Escape)
+        verify(!browser.menuOpen)
+        var shown = browser.sidebarVisible
+        keyClick(Qt.Key_F9)
+        compare(browser.sidebarVisible, !shown)
+        keyClick(Qt.Key_F9)
+        compare(browser.sidebarVisible, shown)
+      }
+
+      function test_zz_done() {
+        if (failures > 0) return
         console.log("OMAFILE_BROWSER_FLOWS_PASSED")
         harness.passed = true
       }
