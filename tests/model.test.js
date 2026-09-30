@@ -463,3 +463,25 @@ test('preview kind follows the entry', function () {
   assert.equal(Model.isViewMode('gallery'), true);
   assert.equal(Model.isViewMode('columns'), false);
 });
+
+test('search filters narrow by type and age like Nautilus', function () {
+  var now = Date.UTC(2026, 8, 30, 12, 0, 0);
+  var day = 86400;
+  var t = Math.floor(now / 1000);
+  var rows = [
+    ['photo.JPG', 'f', 1, t - 2 * day, 420, null, '/a/photo.JPG'],
+    ['notes.md', 'f', 1, t - 40 * day, 420, null, '/a/notes.md'],
+    ['sheet.ods', 'f', 1, t - 3 * day, 420, null, '/a/sheet.ods'],
+    ['music', 'd', 0, t - 1 * day, 493, null, '/a/music'],
+    ['song.flac', 'f', 1, t - 400 * day, 420, null, '/a/song.flac']
+  ];
+  var names = function (list) { return Array.prototype.map.call(list, function (r) { return r[0]; }); };
+  assert.deepEqual(names(Model.filterSearch(rows, '', 0, now)), names(rows));
+  assert.deepEqual(names(Model.filterSearch(rows, 'image', 0, now)), ['photo.JPG']);
+  assert.deepEqual(names(Model.filterSearch(rows, 'folder', 0, now)), ['music']);
+  assert.deepEqual(names(Model.filterSearch(rows, 'document', 0, now)), ['notes.md', 'sheet.ods']);
+  assert.deepEqual(names(Model.filterSearch(rows, '', 7, now)), ['photo.JPG', 'sheet.ods', 'music']);
+  assert.deepEqual(names(Model.filterSearch(rows, 'audio', 365, now)), []);
+  assert.equal(Model.searchLabel(Model.searchTimes, 'days', 30), 'Last 30 days');
+  assert.equal(Model.searchLabel(Model.searchTypes, 'key', 'nope'), 'Any type');
+});

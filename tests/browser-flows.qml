@@ -20,7 +20,12 @@ ShellRoot {
         if (!harness.passed) console.log("OMAFILE_BROWSER_FLOWS_FAILED")
         Qt.quit()
       }
-      function cleanup() { if (qtest_results.failed) console.log("FAILED_IN " + qtest_results.functionName) }
+      property int failures: 0
+      property int ran: 0
+      function cleanup() {
+        ran++
+        if (qtest_results.failed) { failures++; console.log("FAILED_IN " + qtest_results.functionName) }
+      }
       function pane() { return browser.activePane() }
       function names() { return pane().rows.map(function (r) { return r[0] }) }
       function waitRows() { tryVerify(function () { return pane().rows.length === 3 && !pane().loading }, 5000) }
@@ -176,6 +181,132 @@ ShellRoot {
         waitForRendering(browser)
         keyClick(Qt.Key_Escape)
         compare(mock.called("finishPick").args[0].ok, false)
+      }
+
+      SignalSpy { id: dismissSpy; target: browser; signalName: "dismissRequested" }
+      SignalSpy { id: windowSpy; target: browser; signalName: "newWindowRequested" }
+
+      function entryNamed(name) {
+        var idx = names().indexOf(name)
+        pane().setCursor(idx, false, false)
+        return pane().cursorEntry()
+      }
+
+      function test_9a_moveToChooser() {
+        pane().navigate("/tmp")
+        waitRows()
+        mock.calls = []
+        browser.transferTo("move", entryNamed("alpha.yml"))
+        tryVerify(function () { return browser.picking })
+        compare(browser.pickTitle(), "Move 1 item to…")
+        waitForRendering(browser)
+        pane().navigate("/tmp/docs")
+        tryVerify(function () { return pane().path === "/tmp/docs" && !pane().loading })
+        mouseClick(findChild(browser, "pickAccept"))
+        var call = mock.called("beginTransfer")
+        verify(call !== null, "transfer started")
+        compare(call.args[0], "move")
+        compare(call.args[1][0], "/tmp/alpha.yml")
+        compare(call.args[2], "/tmp/docs")
+        compare(mock.called("finishPick"), null, "portal left alone")
+        verify(!browser.picking)
+        tryVerify(function () { return pane().path === "/tmp" }, 3000)
+      }
+
+      function test_9b_chooserCancel() {
+        waitRows()
+        mock.calls = []
+        browser.extractTo(entryNamed("beta.png"))
+        tryVerify(function () { return browser.picking })
+        waitForRendering(browser)
+        keyClick(Qt.Key_Escape)
+        verify(!browser.picking)
+        compare(mock.called("extractArchive"), null)
+        compare(mock.called("finishPick"), null)
+      }
+
+      function test_9c_tabKeys() {
+        waitRows()
+        compare(browser.tabsA.length, 1)
+        keyClick(Qt.Key_T, Qt.ControlModifier)
+        compare(browser.tabsA.length, 2)
+        pane().navigate("/tmp/docs")
+        tryVerify(function () { return pane().path === "/tmp/docs" })
+        keyClick(Qt.Key_W, Qt.ControlModifier)
+        compare(browser.tabsA.length, 1)
+        keyClick(Qt.Key_T, Qt.ShiftModifier | Qt.ControlModifier)
+        compare(browser.tabsA.length, 2, "closed tab restored")
+        compare(browser.activeA, 1)
+        tryVerify(function () { return pane().path === "/tmp/docs" })
+        keyClick(Qt.Key_1, Qt.AltModifier)
+        compare(browser.activeA, 0)
+        keyClick(Qt.Key_PageDown, Qt.ShiftModifier | Qt.ControlModifier)
+        compare(browser.activeA, 1, "tab moved right")
+        compare(browser.tabsA[0].path, "/tmp/docs")
+        keyClick(Qt.Key_W, Qt.ControlModifier)
+        compare(browser.tabsA.length, 1)
+        dismissSpy.clear()
+        keyClick(Qt.Key_W, Qt.ControlModifier)
+        compare(dismissSpy.count, 1, "Ctrl+W on the last tab closes the window")
+        tryVerify(function () { return pane().path === "/tmp/docs" })
+        pane().navigate("/tmp")
+        waitRows()
+      }
+
+      function test_9d_newWindowAndOpenAll() {
+        waitRows()
+        windowSpy.clear()
+        keyClick(Qt.Key_N, Qt.ControlModifier)
+        compare(windowSpy.count, 1)
+        compare(windowSpy.signalArguments[0][0], "/tmp")
+        mock.calls = []
+        pane().selectAll()
+        keyClick(Qt.Key_Return)
+        var opened = mock.calls.filter(function (c) { return c.name === "openExternally" })
+        compare(opened.length, 2, "both files open")
+        compare(browser.tabsA.length, 2, "folder opens in a new tab")
+        keyClick(Qt.Key_W, Qt.ControlModifier)
+        pane().clearSelection()
+      }
+
+      function test_9e_linksAndFolderMenu() {
+        waitRows()
+        mock.calls = []
+        mock.systemClipboard = { mode: "copy", paths: ["/elsewhere/file.txt"] }
+        keyClick(Qt.Key_M, Qt.ControlModifier)
+        var link = mock.called("makeLink")
+        verify(link !== null, "Ctrl+M pastes a link")
+        compare(link.args[0], "/elsewhere/file.txt")
+        compare(link.args[1], "/tmp/Link to file.txt")
+        keyClick(Qt.Key_F10)
+        verify(browser.menuOpen)
+        var labels = browser.menuActions.map(function (a) { return a.label })
+        verify(labels.indexOf("Paste as link") >= 0)
+        verify(labels.indexOf("Properties") >= 0)
+        keyClick(Qt.Key_Escape)
+        verify(!browser.menuOpen)
+      }
+
+      function test_9f_crumbMenu() {
+        waitRows()
+        pane().navigate("/tmp/docs")
+        tryVerify(function () { return pane().path === "/tmp/docs" && !pane().loading })
+        browser.openCrumbMenu("/tmp", browser, 10, 10)
+        compare(browser.menuKind, "crumb")
+        windowSpy.clear()
+        menuItem("Open in new window")
+        compare(windowSpy.signalArguments[0][0], "/tmp")
+        browser.openCrumbMenu("/tmp/docs", browser, 10, 10)
+        compare(browser.menuKind, "", "the current folder gets the folder menu")
+        verify(browser.menuActions.map(function (a) { return a.label }).indexOf("Paste as link") >= 0)
+        browser.closeMenu()
+        pane().navigate("/tmp")
+        waitRows()
+      }
+
+      function test_zz_done() {
+        console.log("OMAFILE_BROWSER_FLOWS_RAN " + ran)
+        if (failures > 0) return
         console.log("OMAFILE_BROWSER_FLOWS_PASSED")
         harness.passed = true
       }

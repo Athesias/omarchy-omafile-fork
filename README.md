@@ -71,7 +71,15 @@ Moving around is covered in [Keyboard](#keyboard); F1 shows the same list inside
 
 Click any part of the address bar to type a path, or press Ctrl+L. Click a breadcrumb to jump to that folder.
 
-The magnifier at the end of the address bar filters the folder you are in. Ctrl+F searches that folder and everything inside it instead. Escape clears the text, then leaves the results.
+The magnifier at the end of the address bar filters the folder you are in. Ctrl+F searches that folder and everything inside it instead, and Ctrl+Shift+F searches your whole home folder. While searching, the type and time buttons narrow the results the way Nautilus's What and When filters do: folders, documents, pictures, music, videos, PDFs, spreadsheets, presentations, text files or archives, modified today or in the last week, month or year. Escape clears the text, then leaves the results.
+
+Right click the address bar for the same menus Nautilus has there: a parent folder can be opened in a new tab or window or shown in Properties, and the current folder gets the folder menu. Middle click a parent folder to open it in a new tab.
+
+### Moving and copying
+
+Move to… and Copy to… in the right click menu turn the window into a folder chooser. Go to the destination, then press Select or Enter. Escape cancels. Extract to… works the same way for archives. Paste into folder pastes into the folder you right clicked, and Paste as link (Ctrl+M) makes links to whatever is on the clipboard.
+
+Delete moves items to the trash straight away, as in Nautilus, and the status bar offers Undo. Turn on Confirm moves to trash in Settings if you would rather be asked.
 
 ### Sorting
 
@@ -161,7 +169,11 @@ Omafile follows GNOME Files conventions, so shortcuts you already know work here
 
 | Keys | Action |
 |------|--------|
-| `Enter` | Open the selected item |
+| `Enter` / `Ctrl+O` / `Alt+Down` | Open the selected items (folders open in new tabs when several are selected) |
+| `Ctrl+Enter` | Open the folder under the cursor in a new tab |
+| `Shift+Enter` | Open the folder under the cursor in a new window |
+| `Ctrl+Alt+O` | Open item location (search, Recent, Starred) |
+| Middle click | Open a folder in a new tab |
 | `Backspace` / `Alt+Up` | Go to the parent folder |
 | `Alt+Left` / `Alt+Right` | Back and forward |
 | Mouse back / forward | Back and forward |
@@ -170,6 +182,7 @@ Omafile follows GNOME Files conventions, so shortcuts you already know work here
 | `/` or `~` | Type a path, starting from root or home |
 | `Home` / `End` | First and last item |
 | `F5` / `Ctrl+R` | Refresh |
+| `Ctrl+.` | Open a terminal in this folder |
 
 ### Moving around without a mouse
 
@@ -184,6 +197,7 @@ Focus starts in the file list. Tab moves it to the sidebar, or to the other pane
 | `Delete` | Remove a bookmark or hide a drive, in the sidebar |
 | `Escape` | Leave the sidebar |
 | `Shift+F10` / `Menu` | Open the context menu on the current item |
+| `F10` | Open the menu for the folder itself |
 
 The context menu is a real focus target: arrows move through it, Enter or Space runs the highlighted entry, Escape closes it. Anything Omafile can do to a file is in there, so no action needs the mouse.
 
@@ -203,10 +217,11 @@ The context menu is a real focus target: arrows move through it, Enter or Space 
 | Keys | Action |
 |------|--------|
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy, cut and paste |
+| `Ctrl+M` | Paste as link |
+| `Ctrl+Shift+M` | Create a link to the selected items |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo and redo |
 | `F2` | Rename |
 | `Ctrl+Shift+N` | New folder |
-| `Ctrl+N` | New file |
 | `Delete` | Move to trash |
 | `Shift+Delete` | Delete permanently |
 | `Ctrl+I` / `Alt+Enter` | Properties |
@@ -214,16 +229,20 @@ The context menu is a real focus target: arrows move through it, Enter or Space 
 
 Undo covers trash, rename, move, copy and new file or folder. Undoing a trash puts the items back where they were, and undoing a copy trashes what the copy created.
 
-### Panes and tabs
+### Windows, tabs and panes
 
 | Keys | Action |
 |------|--------|
-| `Ctrl+T` / `Ctrl+W` | New tab and close tab |
+| `Ctrl+N` | New window |
+| `Ctrl+T` | New tab |
+| `Ctrl+W` | Close the tab, or the window when it is the last one |
+| `Ctrl+Shift+T` | Reopen the last closed tab |
 | `Ctrl+PageUp` / `Ctrl+PageDown` | Previous and next tab |
-| `Ctrl+Enter` | Open the folder under the cursor in a new tab |
+| `Ctrl+Shift+PageUp` / `Ctrl+Shift+PageDown` | Move the tab left or right |
+| `Alt+1` … `Alt+9` | Go to that tab |
 | `F6` | Split into two panes |
 | `Tab` | Switch the active pane, while split |
-| `Ctrl+Shift+C` / `Ctrl+Shift+M` | Copy and move to the other pane |
+| `Ctrl+Shift+C` / `Ctrl+Shift+X` | Copy and move to the other pane |
 
 ### View
 
@@ -231,13 +250,17 @@ Undo covers trash, rename, move, copy and new file or folder. Undoing a trash pu
 |------|--------|
 | `Ctrl+1` / `Ctrl+2` | List and grid |
 | `Ctrl+3` / `Ctrl+4` | Compact and gallery |
+| `Ctrl+Plus` / `Ctrl+Minus` / `Ctrl+0` | Zoom in, out and back to 100% |
 | `Space` | Preview the item under the cursor |
 | `Ctrl+H` | Show hidden files |
-| `Ctrl+B` | Show or hide the sidebar |
+| `F9` / `Ctrl+B` | Show or hide the sidebar |
 | `Ctrl+F`, or just type | Search in this folder |
+| `Ctrl+Shift+F` | Search your whole home folder |
 | `Ctrl+Comma` | Settings |
-| `F1` | The shortcut list |
-| `Ctrl+Q` / `Escape` | Close the window |
+| `F1` / `Ctrl+?` | The shortcut list |
+| `Ctrl+Q` | Close the window |
+
+Grid view at 100% has the same geometry as Nautilus's medium zoom: 96 px icons in cells about 164 px wide, and names wrap to three lines, then lose their middle so the extension stays visible.
 
 Typing an ordinary character opens the search box with that character already typed, the way GNOME Files does.
 

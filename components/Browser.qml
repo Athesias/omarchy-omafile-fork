@@ -76,6 +76,8 @@ Item {
   property var menuDrive: null
   property string menuKind: ""
   property string statusText: ""
+  // The status message that gets an Undo link, like Nautilus's trash toast
+  property string undoableStatus: ""
   property string freeSpaceText: ""
   readonly property string activePath: activePane() ? activePane().path : ""
   onActivePathChanged: refreshFreeSpace()
@@ -147,7 +149,7 @@ Item {
   function defaultTab(path) {
     return {
       path: path || startPath(),
-      view: service ? String(service.setting("defaultView", "list")) : "list",
+      view: service ? String(service.setting("defaultView", "grid")) : "grid",
       sortBy: service ? String(service.setting("sortBy", "name")) : "name",
       descending: false,
       hidden: service ? service.setting("showHidden", false) === true : false,
@@ -220,9 +222,22 @@ Item {
     activeSide = side
     rememberSession()
   }
+  // Tabs closed this session, newest last, for Ctrl+Shift+T
+  property var closedTabs: []
+
   function closeTab(side, index) {
+    storeCurrentTab(side)
     var list = tabsFor(side).slice()
-    if (list.length <= 1) return
+    if (list.length <= 1) {
+      // Nautilus closes the window with its last tab; a split pane folds away instead
+      if (split) closePaneSide(side)
+      else requestClose()
+      return
+    }
+    var gone = closedTabs.slice()
+    gone.push({ side: side, index: index, tab: list[index] })
+    if (gone.length > 20) gone.shift()
+    closedTabs = gone
     list.splice(index, 1)
     var idx = activeIndexFor(side)
     if (idx >= list.length) idx = list.length - 1
@@ -232,6 +247,60 @@ Item {
     applyTab(side, list[idx])
     rememberSession()
   }
+  function restoreClosedTab() {
+    if (closedTabs.length === 0) { statusText = "No closed tabs"; return }
+    var gone = closedTabs.slice()
+    var last = gone.pop()
+    closedTabs = gone
+    var side = last.side === 1 && split ? 1 : 0
+    storeCurrentTab(side)
+    var list = tabsFor(side).slice()
+    var at = Math.max(0, Math.min(list.length, Number(last.index) || 0))
+    list.splice(at, 0, last.tab)
+    setTabs(side, list)
+    setActiveIndex(side, at)
+    applyTab(side, list[at])
+    activeSide = side
+    rememberSession()
+  }
+
+  // Alt+1..9
+  function jumpToTab(index) {
+    var list = tabsFor(activeSide)
+    if (index < 0 || index >= list.length) return
+    selectTab(activeSide, index)
+  }
+
+  // Ctrl+Shift+PageUp / PageDown
+  function moveTab(delta) {
+    var side = activeSide
+    storeCurrentTab(side)
+    var list = tabsFor(side).slice()
+    var from = activeIndexFor(side)
+    var to = from + delta
+    if (to < 0 || to >= list.length) return
+    var tab = list.splice(from, 1)[0]
+    list.splice(to, 0, tab)
+    setTabs(side, list)
+    setActiveIndex(side, to)
+    rememberSession()
+  }
+
+  // Closing the only tab of one side of a split leaves the other side alone
+  function closePaneSide(side) {
+    if (side === 0) {
+      storeCurrentTab(1)
+      tabsA = tabsB
+      activeA = activeB
+      applyTab(0, tabsA[activeA])
+    }
+    tabsB = []
+    activeB = 0
+    split = false
+    activeSide = 0
+    rememberSession()
+  }
+
   function toggleSplit() {
     split = !split
     if (split && tabsB.length === 0) {
@@ -306,13 +375,17 @@ Item {
     root.closeRequested()
   }
   function requestClose() {
-    if (picking) service.finishPick({ ok: false })
+    if (localPick) localPick = null
+    else if (picking) service.finishPick({ ok: false })
     rememberSession()
     root.dismissRequested()
   }
 
-  readonly property var pick: service ? service.pickRequest : null
-  readonly property bool picking: !secondary && pick !== null && pick !== undefined
+  // A folder chooser inside Omafile itself (Move to..., Copy to..., Extract to...)
+  // reuses the portal picking bar; localPick holds its request and callback
+  property var localPick: null
+  readonly property var pick: localPick ? localPick : (service ? service.pickRequest : null)
+  readonly property bool picking: pick !== null && pick !== undefined && (localPick !== null || !secondary)
   readonly property bool pickSaving: picking && (pick.mode === "save" || pick.mode === "savefiles")
   readonly property bool pickNeedsName: picking && pick.mode === "save"
   property int pickFilter: -1
@@ -372,6 +445,7 @@ Item {
 
   function completePick(paths) {
     if (!picking) return
+    if (localPick) { finishLocalPick(paths); return }
     service.finishPick({ ok: true, paths: paths, filter: pickFilter })
     rememberSession()
     root.dismissRequested()
@@ -379,9 +453,30 @@ Item {
 
   function cancelPick() {
     if (!picking) return
+    if (localPick) { finishLocalPick(null); return }
     service.finishPick({ ok: false })
     rememberSession()
     root.dismissRequested()
+  }
+
+  // Opens the folder chooser; onDone gets the chosen folder. The pane goes
+  // back to where it was afterwards, as Nautilus's chooser leaves the view alone.
+  function chooseFolder(title, acceptLabel, onDone) {
+    var p = activePane()
+    localPick = {
+      mode: "open", directory: true, multiple: false, title: title, acceptLabel: acceptLabel,
+      currentFolder: p.virtualView || p.searching ? "" : p.path, origin: p.path, onDone: onDone
+    }
+    Qt.callLater(beginPickSession)
+  }
+
+  function finishLocalPick(paths) {
+    var job = localPick
+    localPick = null
+    var p = activePane()
+    if (job && job.origin && p.path !== job.origin) p.navigate(job.origin)
+    keyCatcher.forceActiveFocus()
+    if (job && job.onDone && paths && paths.length > 0) job.onDone(String(paths[0]))
   }
 
   function pickTargetFolder() {
@@ -562,10 +657,11 @@ Item {
     service.setClipboard("cut", paths)
     statusText = Model.formatCount(paths.length, "item cut", "items cut")
   }
-  function doPaste() {
+  function doPaste(into) {
     if (!service) return
     var p = activePane()
-    var dest = p.path
+    var dest = into || p.path
+    if (!into && p.virtualView) { statusText = "Pick a folder to paste into"; return }
     // The system clipboard wins, so files copied in Nautilus or a browser paste here too
     service.readSystemClipboard(function (sys) {
       var clip = sys
@@ -607,7 +703,8 @@ Item {
     if (paths.length === 0) return
     if (isTrashRoot(activePane().path)) return askDelete(paths)
     if (service.setting("useTrash", true) !== true) return askDelete(paths)
-    if (service.setting("confirmTrash", true) !== true) return performTrash(paths)
+    // Nautilus trashes straight away and offers Undo instead of asking
+    if (service.setting("confirmTrash", false) !== true) return performTrash(paths)
     confirmAction = "trash"
     confirm.message = "Move " + Model.formatCount(paths.length, "item", "items") + " to trash?"
     confirm.confirmText = "Move to trash"
@@ -618,6 +715,7 @@ Item {
     var p = activePane()
     service.trashPaths(paths, function () { p.refresh() }, null)
     statusText = Model.formatCount(paths.length, "item moved to trash", "items moved to trash")
+    undoableStatus = statusText
   }
   function askDelete(paths) {
     var targets = paths || activePane().selectedPaths()
@@ -793,16 +891,37 @@ Item {
   }
 
   function makeLinks(entry) {
+    linkPaths(actionTargets(entry), "")
+  }
+
+  // Paste as link / Ctrl+M: links in this folder to the files on the clipboard
+  function pasteAsLink() {
+    if (!service) return
+    var p = activePane()
+    if (p.virtualView || p.searching) { statusText = "Pick a folder to paste into"; return }
+    service.readSystemClipboard(function (sys) {
+      var clip = sys
+      if (!clip || !clip.paths || clip.paths.length === 0) clip = service.clipboard
+      if (!clip || !clip.paths || clip.paths.length === 0) {
+        root.statusText = "Nothing to paste"
+        return
+      }
+      root.linkPaths(clip.paths, p.path)
+    })
+  }
+
+  // Links named "Link to <name>" in dir, or beside each target when dir is empty
+  // and the view has no single folder (search, Recent, Starred)
+  function linkPaths(targets, dir) {
     var p = activePane()
     var taken = {}
     for (var i = 0; i < p.rows.length; i++) taken[p.rows[i][0]] = true
-    var targets = actionTargets(entry)
     var made = 0
     for (var t = 0; t < targets.length; t++) {
-      var dir = p.virtualView || p.searching ? Model.parentPath(targets[t]) : p.path
+      var where = dir || (p.virtualView || p.searching ? Model.parentPath(targets[t]) : p.path)
       var name = uniqueName("Link to " + Model.basename(targets[t]), taken)
       taken[name] = true
-      service.makeLink(targets[t], Model.joinPath(dir, name), function () {
+      service.makeLink(targets[t], Model.joinPath(where, name), function () {
         made++
         root.statusText = Model.formatCount(made, "link made", "links made")
         p.refresh()
@@ -897,7 +1016,7 @@ Item {
       name, { paths: targets })
   }
 
-  function extractArchives(entry) {
+  function extractArchives(entry, dest) {
     var p = activePane()
     var picked = actionTargets(entry)
     var archives = []
@@ -914,8 +1033,78 @@ Item {
       }, function (m) {
         left--
         root.statusText = "Could not extract: " + String(m.message || "")
-      })
+      }, dest || "")
     }
+  }
+
+  function extractTo(entry) {
+    chooseFolder("Extract to…", "Select", function (dest) {
+      root.extractArchives(entry, dest)
+    })
+  }
+
+  // Move to... and Copy to...
+  function transferTo(op, entry) {
+    var targets = actionTargets(entry)
+    if (targets.length === 0) return
+    var count = Model.formatCount(targets.length, "item", "items")
+    chooseFolder((op === "move" ? "Move " : "Copy ") + count + " to…", "Select", function (dest) {
+        root.service.beginTransfer(op, targets, dest, "ask")
+        root.statusText = (op === "move" ? "Moving " : "Copying ") + count + " to " + Model.basename(dest)
+      })
+  }
+
+  // Run as a Program, for executable files
+  function runProgram(entry) {
+    if (!entry) return
+    Quickshell.execDetached({ command: [entry.path], workingDirectory: Model.parentPath(entry.path) })
+    afterLaunch()
+  }
+
+  function removeFromRecent(entry) {
+    var p = activePane()
+    var targets = actionTargets(entry)
+    service.forgetRecent(targets, function () {
+      root.statusText = Model.formatCount(targets.length, "item removed from Recent", "items removed from Recent")
+      p.refresh()
+    }, function (m) {
+      root.statusText = "Could not update Recent: " + String(m.message || "")
+    })
+  }
+
+  // A folder as an entry, for Properties and Open with on the folder itself
+  function folderEntry(path) {
+    return { name: Model.basename(path) || "/", path: path, isDir: true, isLink: false,
+      isBroken: false, isExec: false, isHidden: false, size: 0, mtime: 0, linkTarget: null }
+  }
+
+  function currentFolderEntry() {
+    var p = activePane()
+    if (!p || p.virtualView || !p.path) return null
+    return folderEntry(p.path)
+  }
+
+  // Enter and Ctrl+O open every selected item, as Nautilus does: files in their
+  // apps, folders in new tabs. One item behaves as before.
+  function openSelectedItems() {
+    var p = activePane()
+    var sel = p.selectedEntries
+    if (sel.length <= 1 || picking) { p.activateCursor(); return }
+    var dirs = []
+    for (var i = 0; i < sel.length; i++) {
+      if (sel[i].isDir && !sel[i].isBroken) dirs.push(sel[i].path)
+      else if (service) service.openExternally(sel[i].path)
+    }
+    for (var d = 0; d < dirs.length; d++) newTab(activeSide, dirs[d])
+    afterLaunch()
+  }
+
+  // Shift+Enter: folders in a new window, files as usual
+  function openCursorInNewWindow() {
+    var entry = activePane().cursorEntry()
+    if (!entry) return
+    if (entry.isDir && !entry.isBroken) newWindowRequested(entry.path)
+    else activePane().openEntry(entry)
   }
 
   function contextActions(entry) {
@@ -927,8 +1116,10 @@ Item {
       items.push({ key: "open", label: entry.isDir ? "Open" : "Open", glyph: Icons.actionGlyph("open") })
       items.push({ key: "openwith", label: "Open with", glyph: Icons.actionGlyph("open") })
       if (!entry.isDir) items.push({ key: "preview", label: "Preview", glyph: Icons.actionGlyph("search") })
+      if (entry.isExec)
+        items.push({ key: "run", label: "Run as a program", glyph: Icons.actionGlyph("terminal") })
       if (Model.parentPath(entry.path) !== p.path)
-        items.push({ key: "location", label: "Open file location", glyph: Icons.actionGlyph("open") })
+        items.push({ key: "location", label: "Open item location", glyph: Icons.actionGlyph("open") })
       var media = transcodeTargets(entry)
       if (media.length > 0)
         items.push({ key: "transcode", glyph: Icons.glyphFor(entry),
@@ -938,8 +1129,10 @@ Item {
       items.push({ key: "localsend", label: "Send via LocalSend", glyph: Icons.actionGlyph("forward") })
       items.push({ key: "star", label: allStarred(entry) ? "Unstar" : "Star", glyph: Icons.placeGlyph("starred") })
       items.push({ key: "compress", label: "Compress", glyph: Icons.glyphForCategory("archive") })
-      if (Model.isArchive(entry))
+      if (Model.isArchive(entry)) {
         items.push({ key: "extract", label: "Extract here", glyph: Icons.glyphForCategory("archive") })
+        items.push({ key: "extractto", label: "Extract to…", glyph: Icons.glyphForCategory("archive") })
+      }
       if (entry.isDir) {
         items.push({ key: "opentab", label: "Open in new tab", glyph: Icons.actionGlyph("add") })
         items.push({ key: "openwindow", label: "Open in new window", glyph: Icons.actionGlyph("add") })
@@ -952,34 +1145,51 @@ Item {
         items.push({ key: "claude", label: "Open Claude Code here", glyph: Icons.actionGlyph("terminal") })
       }
       items.push({ key: "sep1", label: "", glyph: "" })
-      items.push({ key: "copy", label: "Copy", glyph: Icons.actionGlyph("copy") })
       items.push({ key: "cut", label: "Cut", glyph: Icons.actionGlyph("cut") })
-      items.push({ key: "makelink", label: "Make link", glyph: Icons.glyphForCategory("link") })
-    }
-    items.push({ key: "paste", label: "Paste", glyph: Icons.actionGlyph("paste"), disabled: !service })
-    if (hasEntry) {
+      items.push({ key: "copy", label: "Copy", glyph: Icons.actionGlyph("copy") })
+      items.push({ key: "moveto", label: "Move to…", glyph: Icons.actionGlyph("forward") })
+      items.push({ key: "copyto", label: "Copy to…", glyph: Icons.actionGlyph("copy") })
+      if (entry.isDir && !entry.isBroken && p.selectedCount <= 1)
+        items.push({ key: "pasteinto", label: "Paste into folder", glyph: Icons.actionGlyph("paste"), disabled: !service })
+      else if (!p.virtualView && !p.searching)
+        items.push({ key: "paste", label: "Paste", glyph: Icons.actionGlyph("paste"), disabled: !service })
       items.push({ key: "sep2", label: "", glyph: "" })
       items.push({ key: "rename", label: "Rename", glyph: Icons.actionGlyph("rename") })
+      items.push({ key: "makelink", label: "Create link", glyph: Icons.glyphForCategory("link") })
       items.push({ key: "trash", label: "Move to trash", glyph: Icons.actionGlyph("trash") })
       items.push({ key: "delete", label: "Delete permanently", glyph: Icons.actionGlyph("delete") })
+      if (p.path === "recent:")
+        items.push({ key: "forgetrecent", label: "Remove from Recent", glyph: Icons.actionGlyph("close") })
       items.push({ key: "sep3", label: "", glyph: "" })
-      items.push({ key: "copypath", label: "Copy path", glyph: Icons.actionGlyph("copy") })
+      items.push({ key: "copypath", label: "Copy location", glyph: Icons.actionGlyph("copy") })
       items.push({ key: "properties", label: "Properties", glyph: Icons.actionGlyph("properties") })
     } else {
+      var folder = !p.virtualView && !p.searching
+      items.push({ key: "newfolder", label: "New folder", glyph: Icons.actionGlyph("newfolder"), disabled: !folder })
+      items.push({ key: "newfile", label: "New file", glyph: Icons.actionGlyph("newfile"), disabled: !folder })
+      items.push({ key: "openwithfolder", label: "Open with…", glyph: Icons.actionGlyph("open"), disabled: !folder })
+      items.push({ key: "terminal", label: "Open in terminal", glyph: Icons.actionGlyph("terminal"), disabled: !folder })
+      items.push({ key: "claude", label: "Open Claude Code here", glyph: Icons.actionGlyph("terminal"), disabled: !folder })
+      items.push({ key: "sep1", label: "", glyph: "" })
+      items.push({ key: "paste", label: "Paste", glyph: Icons.actionGlyph("paste"), disabled: !service || !folder })
+      items.push({ key: "pastelink", label: "Paste as link", glyph: Icons.glyphForCategory("link"), disabled: !service || !folder })
+      items.push({ key: "selectall", label: "Select all", glyph: Icons.actionGlyph("search") })
+      items.push({ key: "selectmatch", label: "Select items matching", glyph: Icons.actionGlyph("search") })
+      if (p.view === "list")
+        items.push({ key: "columns", label: "Visible columns…", glyph: Icons.actionGlyph("properties") })
       items.push({ key: "sep2", label: "", glyph: "" })
-      items.push({ key: "newfolder", label: "New folder", glyph: Icons.actionGlyph("newfolder") })
-      items.push({ key: "newfile", label: "New file", glyph: Icons.actionGlyph("newfile") })
-      items.push({ key: "sep3", label: "", glyph: "" })
       items.push({
         key: "bookmark",
         label: root.isBookmarked(p.path) ? "Remove this bookmark" : "Bookmark this folder",
-        glyph: Icons.placeGlyph("pinned")
+        glyph: Icons.placeGlyph("pinned"), disabled: !folder
       })
-      items.push({ key: "terminal", label: "Open in terminal", glyph: Icons.actionGlyph("terminal") })
-      items.push({ key: "claude", label: "Open Claude Code here", glyph: Icons.actionGlyph("terminal") })
+      items.push({ key: "starfolder", label: folder && service && service.isStarred(p.path) ? "Unstar folder" : "Star folder",
+        glyph: Icons.placeGlyph("starred"), disabled: !folder })
+      items.push({ key: "copypath", label: "Copy location", glyph: Icons.actionGlyph("copy"), disabled: !folder })
       items.push({ key: "newwindow", label: "New window", glyph: Icons.actionGlyph("add") })
-      items.push({ key: "selectmatch", label: "Select items matching", glyph: Icons.actionGlyph("search") })
       items.push({ key: "refresh", label: "Refresh", glyph: Icons.actionGlyph("refresh") })
+      items.push({ key: "sep3", label: "", glyph: "" })
+      items.push({ key: "folderprops", label: "Properties", glyph: Icons.actionGlyph("properties"), disabled: !folder })
     }
     return items
   }
@@ -1063,6 +1273,30 @@ Item {
     else if (key === "background") setAsBackground(entry)
     else if (key === "localsend") service.sendViaLocalSend(actionTargets(entry))
     else if (key === "makelink") makeLinks(entry)
+    else if (key.indexOf("stype:") === 0) p.searchType = key.substring(6)
+    else if (key.indexOf("stime:") === 0) p.searchDays = Number(key.substring(6)) || 0
+    else if (key.indexOf("crumb:") === 0) {
+      var crumb = menuCrumbPath
+      if (key === "crumb:open") p.navigate(crumb)
+      else if (key === "crumb:tab") newTab(activeSide, crumb)
+      else if (key === "crumb:window") newWindowRequested(crumb)
+      else if (key === "crumb:props") showProperties(folderEntry(crumb))
+    }
+    else if (key === "pastelink") pasteAsLink()
+    else if (key === "pasteinto" && entry) doPaste(entry.path)
+    else if (key === "moveto") transferTo("move", entry)
+    else if (key === "copyto") transferTo("copy", entry)
+    else if (key === "extractto") extractTo(entry)
+    else if (key === "run") runProgram(entry)
+    else if (key === "forgetrecent") removeFromRecent(entry)
+    else if (key === "selectall") p.selectAll()
+    else if (key === "columns") openColumnsMenu(keyCatcher, menuX, menuY)
+    else if (key === "openwithfolder") { var here = currentFolderEntry(); if (here) openWithDialog(here, false) }
+    else if (key === "folderprops") showProperties(currentFolderEntry())
+    else if (key === "starfolder") {
+      var nowStarred = service.toggleStarred([p.path])
+      statusText = nowStarred ? "Starred" : "Unstarred"
+    }
     else if (key === "selectmatch") showDialog("selectmatch", "Select items matching", "*", null)
     else if (key === "open") p.openEntry(entry)
     else if (key === "openwith") openWithDialog(entry, false)
@@ -1264,6 +1498,8 @@ Item {
   function exitFind() {
     findDebounce.stop()
     findMode = false
+    activePane().searchType = ""
+    activePane().searchDays = 0
     pathBar.closeFilter()
     var p = activePane()
     if (p) {
@@ -1420,6 +1656,74 @@ Item {
       + (activeSide === 1 ? sideA.width : 0)
     menuY = toolbar.height + Style.space(40) + Math.min(row, 18) * Style.space(22)
     menuOpen = true
+  }
+
+  // Right click on the path bar, as in Nautilus: the current folder gets the
+  // folder menu, a parent folder gets open and properties
+  property string menuCrumbPath: ""
+  function openCrumbMenu(target, source, x, y) {
+    var p = activePane()
+    var pt = source.mapToItem(keyCatcher, x, y)
+    menuEntry = null
+    menuCursor = -1
+    if (String(target) === p.path) {
+      menuKind = ""
+      menuActions = contextActions(null)
+    } else {
+      menuKind = "crumb"
+      menuCrumbPath = String(target)
+      menuActions = [
+        { key: "crumb:open", label: "Open", glyph: Icons.actionGlyph("open") },
+        { key: "crumb:tab", label: "Open in new tab", glyph: Icons.actionGlyph("add") },
+        { key: "crumb:window", label: "Open in new window", glyph: Icons.actionGlyph("add") },
+        { key: "sep1", label: "", glyph: "" },
+        { key: "crumb:props", label: "Properties", glyph: Icons.actionGlyph("properties") }
+      ]
+    }
+    menuX = pt.x
+    menuY = pt.y
+    menuOpen = true
+  }
+
+  function openSearchMenu(kind, source) {
+    var p = activePane()
+    var check = Icons.actionGlyph("check")
+    var items = []
+    if (kind === "type") {
+      for (var i = 0; i < Model.searchTypes.length; i++)
+        items.push({ key: "stype:" + Model.searchTypes[i].key, label: Model.searchTypes[i].label,
+          glyph: p.searchType === Model.searchTypes[i].key ? check : "" })
+    } else {
+      for (var t = 0; t < Model.searchTimes.length; t++)
+        items.push({ key: "stime:" + Model.searchTimes[t].days, label: Model.searchTimes[t].label,
+          glyph: p.searchDays === Model.searchTimes[t].days ? check : "" })
+    }
+    menuKind = "search"
+    menuEntry = null
+    menuActions = items
+    menuCursor = -1
+    var pt = source.mapToItem(keyCatcher, 0, source.height)
+    menuX = pt.x
+    menuY = pt.y
+    menuOpen = true
+  }
+
+  function openFolderMenu() {
+    menuKind = ""
+    menuEntry = null
+    menuActions = contextActions(null)
+    menuCursor = firstMenuIndex()
+    menuX = (sidebarVisible ? sidebar.width : 0) + Style.space(60) + (activeSide === 1 ? sideA.width : 0)
+    menuY = toolbar.height + Style.space(20)
+    menuOpen = true
+  }
+
+  // Ctrl+Shift+F: search from the home folder
+  function searchEverywhere() {
+    var p = activePane()
+    if (p.path !== home) p.navigate(home)
+    enterFind()
+    statusText = "Searching your home folder"
   }
 
   function closeMenu() {
@@ -1608,14 +1912,34 @@ Item {
       openMenuAtCursor()
       return true
     }
+    // F10 opens the menu for the folder itself, like Nautilus's current-folder menu
+    if (event.key === Qt.Key_F10) { openFolderMenu(); return true }
+    if (event.key === Qt.Key_F9) { sidebarVisible = !sidebarVisible; rememberSession(); return true }
+
+    if (ctrl && shiftKey && event.key === Qt.Key_T) { restoreClosedTab(); return true }
+    if (ctrl && shiftKey && event.key === Qt.Key_F) { searchEverywhere(); return true }
+    if (ctrl && shiftKey && event.key === Qt.Key_PageUp) { moveTab(-1); return true }
+    if (ctrl && shiftKey && event.key === Qt.Key_PageDown) { moveTab(1); return true }
+    if (ctrl && (event.key === Qt.Key_Question || (shiftKey && event.key === Qt.Key_Slash))) {
+      showDialog("shortcuts", "Keyboard shortcuts", "", null)
+      return true
+    }
+    if (ctrl && alt && event.key === Qt.Key_O) { openFileLocation(p.cursorEntry()); return true }
+    if (alt && !ctrl && event.key >= Qt.Key_1 && event.key <= Qt.Key_9) { jumpToTab(event.key - Qt.Key_1); return true }
+    if (alt && event.key === Qt.Key_Down) { openSelectedItems(); return true }
+    if (shiftKey && !ctrl && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) { openCursorInNewWindow(); return true }
 
     if (ctrl && shiftKey && event.key === Qt.Key_N) { showDialog("newfolder", "New folder", "untitled folder", null); return true }
     if (ctrl && shiftKey && event.key === Qt.Key_C) { transferToOtherPane("copy"); return true }
-    if (ctrl && shiftKey && event.key === Qt.Key_M) { transferToOtherPane("move"); return true }
+    if (ctrl && shiftKey && event.key === Qt.Key_X) { transferToOtherPane("move"); return true }
+    if (ctrl && shiftKey && event.key === Qt.Key_M) { makeLinks(p.cursorEntry()); return true }
     if (ctrl && shiftKey && event.key === Qt.Key_I) { p.invertSelection(); return true }
     if (ctrl && shiftKey && event.key === Qt.Key_Z) { doRedo(); return true }
 
-    if (ctrl && event.key === Qt.Key_N) { showDialog("newfile", "New file", "untitled", null); return true }
+    if (ctrl && event.key === Qt.Key_N) { newWindowRequested(p.virtualView ? "" : p.path); return true }
+    if (ctrl && event.key === Qt.Key_O) { openSelectedItems(); return true }
+    if (ctrl && event.key === Qt.Key_M) { pasteAsLink(); return true }
+    if (ctrl && event.key === Qt.Key_Period) { if (!p.virtualView) service.openTerminal(p.path); return true }
     if (ctrl && event.key === Qt.Key_T) { newTab(activeSide, null); return true }
     if (ctrl && event.key === Qt.Key_W) { closeTab(activeSide, activeIndexFor(activeSide)); return true }
     if (ctrl && event.key === Qt.Key_Q) { requestClose(); return true }
@@ -1666,7 +1990,7 @@ Item {
     if (event.key === Qt.Key_Slash) { pathBar.beginEditWith("/"); return true }
     if (event.key === Qt.Key_AsciiTilde) { pathBar.beginEditWith("~"); return true }
 
-    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { p.activateCursor(); return true }
+    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { openSelectedItems(); return true }
     if (event.key === Qt.Key_Space) { togglePreview(); return true }
     if (event.key === Qt.Key_Down) { p.moveCursor(p.columnsPerRow(), shiftKey); return true }
     if (event.key === Qt.Key_Up) { p.moveCursor(-p.columnsPerRow(), shiftKey); return true }
@@ -1878,6 +2202,12 @@ Item {
             keyCatcher.forceActiveFocus()
           }
 
+          onOpenInNewTab: function (target) { root.newTab(root.activeSide, target) }
+          onCrumbMenu: function (target, source, x, y) { root.openCrumbMenu(target, source, x, y) }
+          typeLabel: root.activePane() ? Model.searchLabel(Model.searchTypes, "key", root.activePane().searchType) : "Any type"
+          timeLabel: root.activePane() ? Model.searchLabel(Model.searchTimes, "days", root.activePane().searchDays) : "Any time"
+          onSearchMenuRequested: function (kind, source) { root.openSearchMenu(kind, source) }
+
           onFilterEdited: function (text) {
             if (root.findMode) {
               findDebounce.restart()
@@ -1956,7 +2286,7 @@ Item {
               activeIndex: root.activeA
               visible: root.tabsA.length > 1 || root.split
               onSelectTab: function (index) { root.selectTab(0, index) }
-              onCloseTab: function (index) { root.closeTab(0, index) }
+              onCloseTab: function (index) { if (root.tabsA.length > 1) root.closeTab(0, index) }
               onAddTab: root.newTab(0, null)
             }
 
@@ -1978,6 +2308,7 @@ Item {
                 keyCatcher.forceActiveFocus()
               }
               onOpenRequested: function (entry) { root.handleOpenRequest(entry) }
+              onNewTabRequested: function (path) { root.newTab(0, path) }
               onNavigated: function (p) { root.rememberSession() }
               onZoomRequested: function (delta) { root.nudgeViewScale(delta) }
               onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
@@ -2009,7 +2340,7 @@ Item {
               activeIndex: root.activeB
               visible: root.tabsB.length > 1 || root.split
               onSelectTab: function (index) { root.selectTab(1, index) }
-              onCloseTab: function (index) { root.closeTab(1, index) }
+              onCloseTab: function (index) { if (root.tabsB.length > 1) root.closeTab(1, index) }
               onAddTab: root.newTab(1, null)
             }
 
@@ -2031,6 +2362,7 @@ Item {
                 keyCatcher.forceActiveFocus()
               }
               onOpenRequested: function (entry) { root.handleOpenRequest(entry) }
+              onNewTabRequested: function (path) { root.newTab(1, path) }
               onNavigated: function (p) { root.rememberSession() }
               onZoomRequested: function (delta) { root.nudgeViewScale(delta) }
               onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
@@ -2191,6 +2523,25 @@ Item {
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
             elide: Text.ElideRight
+          }
+
+          Text {
+            anchors.verticalCenter: parent.verticalCenter
+            visible: root.statusText !== "" && root.statusText === root.undoableStatus
+              && root.service !== null && root.service.undoStack.length > 0
+            text: "Undo"
+            color: undoHover.hovered ? Color.accent : Util.alpha(Color.foreground, 0.75)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            font.underline: true
+
+            HoverHandler { id: undoHover }
+
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: { root.undoableStatus = ""; root.doUndo() }
+            }
           }
         }
 
@@ -2972,7 +3323,7 @@ Item {
                       width: settingsColumn.width
                       label: modelData.label
                       description: modelData.description
-                      checked: root.boolSetting(modelData.key, true)
+                      checked: root.boolSetting(modelData.key, modelData.fallback !== false)
                       onClicked: root.applySettingNow(modelData.key, !checked)
                     }
                   }
@@ -2998,7 +3349,7 @@ Item {
                   Dropdown {
                     width: parent.width
                     label: "View"
-                    value: root.textSetting("defaultView", "list")
+                    value: root.textSetting("defaultView", "grid")
                     options: [
                       { label: "List", value: "list" },
                       { label: "Compact", value: "compact" },
@@ -3115,7 +3466,7 @@ Item {
                       width: settingsColumn.width
                       label: modelData.label
                       description: modelData.description
-                      checked: root.boolSetting(modelData.key, true)
+                      checked: root.boolSetting(modelData.key, modelData.fallback !== false)
                       onClicked: root.applySettingNow(modelData.key, !checked)
                     }
                   }
@@ -3173,7 +3524,7 @@ Item {
                       width: settingsColumn.width
                       label: modelData.label
                       description: modelData.description
-                      checked: root.boolSetting(modelData.key, true)
+                      checked: root.boolSetting(modelData.key, modelData.fallback !== false)
                       onClicked: root.applySettingNow(modelData.key, !checked)
                     }
                   }
@@ -3642,7 +3993,10 @@ Item {
   function shortcutRows() {
     return [
       { section: "Navigation" },
-      { keys: "Enter", label: "Open the selected item" },
+      { keys: "Enter / Ctrl+O / Alt+Down", label: "Open the selected items" },
+      { keys: "Ctrl+Enter", label: "Open the folder under the cursor in a new tab" },
+      { keys: "Shift+Enter", label: "Open the folder under the cursor in a new window" },
+      { keys: "Ctrl+Alt+O", label: "Open item location (search, Recent, Starred)" },
       { keys: "Backspace / Alt+Up", label: "Go to the parent folder" },
       { keys: "Alt+Left / Alt+Right", label: "Back and forward" },
       { keys: "Alt+Home", label: "Go to your home folder" },
@@ -3650,14 +4004,16 @@ Item {
       { keys: "/  or  ~", label: "Type a path, starting from root or home" },
       { keys: "Home / End", label: "First and last item" },
       { keys: "F5 / Ctrl+R", label: "Refresh" },
+      { keys: "Ctrl+.", label: "Open a terminal in this folder" },
       { section: "Moving around without a mouse" },
       { keys: "Tab", label: "Sidebar, or the other pane when split" },
       { keys: "Shift+Tab", label: "Jump to the sidebar" },
       { keys: "Arrows, Enter", label: "Move and open, once in the sidebar" },
       { keys: "Ctrl+Enter", label: "Open a sidebar place in a new tab" },
-      { keys: "Delete", label: "Remove a bookmark or hide a drive, in the sidebar" },
+      { keys: "Delete", label: "Remove a bookmark, in the sidebar" },
       { keys: "Escape", label: "Leave the sidebar" },
       { keys: "Shift+F10 / Menu", label: "Open the context menu on the current item" },
+      { keys: "F10", label: "Open the menu for this folder" },
       { section: "Selection" },
       { keys: "Ctrl+Click", label: "Add one item to the selection" },
       { keys: "Ctrl+Space", label: "Add the item under the cursor" },
@@ -3668,33 +4024,40 @@ Item {
       { keys: "Escape", label: "Clear the selection" },
       { section: "Files" },
       { keys: "Ctrl+C / Ctrl+X / Ctrl+V", label: "Copy, cut and paste" },
+      { keys: "Ctrl+M", label: "Paste as link" },
+      { keys: "Ctrl+Shift+M", label: "Create a link to the selected items" },
       { keys: "Ctrl+Z / Ctrl+Shift+Z", label: "Undo and redo" },
       { keys: "F2", label: "Rename" },
       { keys: "Ctrl+Shift+N", label: "New folder" },
-      { keys: "Ctrl+N", label: "New file" },
       { keys: "Delete", label: "Move to trash" },
       { keys: "Shift+Delete", label: "Delete permanently" },
       { keys: "Ctrl+I / Alt+Enter", label: "Properties" },
       { keys: "Ctrl+D", label: "Bookmark this folder" },
-      { section: "Panes and tabs" },
-      { keys: "Ctrl+T / Ctrl+W", label: "New tab and close tab" },
+      { section: "Windows, tabs and panes" },
+      { keys: "Ctrl+N", label: "New window" },
+      { keys: "Ctrl+T", label: "New tab" },
+      { keys: "Ctrl+W", label: "Close the tab, or the window when it is the last one" },
+      { keys: "Ctrl+Shift+T", label: "Reopen the last closed tab" },
       { keys: "Ctrl+PageUp / PageDown", label: "Previous and next tab" },
-      { keys: "Ctrl+Enter", label: "Open the folder under the cursor in a new tab" },
+      { keys: "Ctrl+Shift+PageUp / PageDown", label: "Move the tab left or right" },
+      { keys: "Alt+1 … Alt+9", label: "Go to that tab" },
       { keys: "F6", label: "Split into two panes" },
       { keys: "Tab", label: "Switch the active pane, while split" },
-      { keys: "Ctrl+Shift+C / Ctrl+Shift+M", label: "Copy and move to the other pane" },
+      { keys: "Ctrl+Shift+C / Ctrl+Shift+X", label: "Copy and move to the other pane" },
       { section: "View" },
       { keys: "Ctrl+1 / Ctrl+2", label: "List and grid" },
       { keys: "Ctrl+3 / Ctrl+4", label: "Compact and gallery" },
+      { keys: "Ctrl+Plus / Ctrl+Minus / Ctrl+0", label: "Zoom in, out and back to normal" },
+      { keys: "Ctrl+wheel", label: "Zoom in and out" },
       { keys: "Space", label: "Preview the item under the cursor" },
       { keys: "Mouse back / forward", label: "Back and forward" },
       { keys: "Ctrl+H", label: "Show hidden files" },
-      { keys: "Ctrl+B", label: "Show or hide the sidebar" },
+      { keys: "F9 / Ctrl+B", label: "Show or hide the sidebar" },
       { keys: "Ctrl+F, or just type", label: "Search in this folder (Contents searches inside files)" },
-      { keys: "Ctrl+wheel", label: "Zoom in and out" },
+      { keys: "Ctrl+Shift+F", label: "Search your whole home folder" },
       { keys: "Ctrl+Comma", label: "Settings" },
-      { keys: "F1", label: "This list" },
-      { keys: "Ctrl+Q / Escape", label: "Close the window" },
+      { keys: "F1 / Ctrl+?", label: "This list" },
+      { keys: "Ctrl+Q", label: "Close the window" },
       { section: "When a file already exists" },
       { keys: "R / K / S / A", label: "Replace, keep both, skip, skip all" }
     ]
@@ -3714,7 +4077,8 @@ Item {
     } else {
       rows.push({ label: "Size", value: Model.formatSize(entry.size) })
     }
-    rows.push({ label: "Modified", value: Model.formatFullDate(entry.mtime) })
+    var mtime = entry.mtime || (info ? Number(info.mtime) || 0 : 0)
+    if (mtime) rows.push({ label: "Modified", value: Model.formatFullDate(mtime) })
     if (info) {
       rows.push({ label: "Permissions", value: Model.formatMode(info.mode) })
       rows.push({ label: "Owner", value: String(info.owner || "") + ":" + String(info.group || "") })
@@ -3773,8 +4137,8 @@ Item {
     return [
       { key: "useTrash", label: "Delete moves to trash",
         description: "Turn this off to delete permanently every time" },
-      { key: "confirmTrash", label: "Confirm moves to trash",
-        description: "Ask before items are moved to the trash" },
+      { key: "confirmTrash", label: "Confirm moves to trash", fallback: false,
+        description: "Ask before items are moved to the trash (Undo is offered either way)" },
       { key: "confirmDelete", label: "Confirm permanent deletes",
         description: "Ask before anything is destroyed for good" }
     ]

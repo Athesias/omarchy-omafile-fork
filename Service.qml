@@ -785,8 +785,15 @@ Item {
       { onDone: onDone, onError: onError })
   }
 
-  function extractArchive(path, onDone, onError) {
-    return request({ op: "extract", path: path }, { onDone: onDone, onError: onError })
+  // dest is optional; without it the archive extracts next to itself
+  function extractArchive(path, onDone, onError, dest) {
+    var req = { op: "extract", path: path }
+    if (dest) req.dest = dest
+    return request(req, { onDone: onDone, onError: onError })
+  }
+
+  function forgetRecent(paths, onDone, onError) {
+    return request({ op: "forgetrecent", paths: paths }, { onDone: onDone, onError: onError })
   }
 
   // Thumbnails for videos and PDFs; results are cached by path for the session

@@ -777,3 +777,73 @@ function previewKind(entry) {
   if (imageExtSet[String(entry.ext || '').toLowerCase()]) return 'image';
   return 'text';
 }
+
+// Search filters, like the What and When choices in Nautilus's search
+var searchTypes = [
+  { key: '', label: 'Any type' },
+  { key: 'folder', label: 'Folders' },
+  { key: 'document', label: 'Documents' },
+  { key: 'image', label: 'Pictures' },
+  { key: 'audio', label: 'Music' },
+  { key: 'video', label: 'Videos' },
+  { key: 'pdf', label: 'PDF' },
+  { key: 'spreadsheet', label: 'Spreadsheets' },
+  { key: 'presentation', label: 'Presentations' },
+  { key: 'text', label: 'Text files' },
+  { key: 'archive', label: 'Archives' }
+];
+
+var searchTimes = [
+  { days: 0, label: 'Any time' },
+  { days: 1, label: 'Today' },
+  { days: 7, label: 'Last 7 days' },
+  { days: 30, label: 'Last 30 days' },
+  { days: 365, label: 'Last year' }
+];
+
+var spreadsheetExtSet = toSet(['xls', 'xlsx', 'ods', 'csv', 'tsv']);
+var presentationExtSet = toSet(['ppt', 'pptx', 'odp', 'key']);
+var textExtSet = toSet(['txt', 'md', 'log', 'ini', 'conf', 'cfg', 'rst']);
+var officeExtSet = toSet(['doc', 'docx', 'odt', 'rtf', 'pdf', 'epub']);
+
+function searchLabel(list, field, value) {
+  for (var i = 0; i < list.length; i++) if (list[i][field] === value) return list[i].label;
+  return list[0].label;
+}
+
+function rawMatchesType(row, type) {
+  if (!type) return true;
+  var isDir = rawIsDir(row);
+  if (type === 'folder') return isDir;
+  if (isDir) return false;
+  var ext = extOf(String(row[0] || '')).toLowerCase();
+  if (type === 'image') return !!imageExtSet[ext];
+  if (type === 'audio') return !!audioExtSet[ext];
+  if (type === 'video') return !!videoExtSet[ext];
+  if (type === 'pdf') return ext === 'pdf';
+  if (type === 'spreadsheet') return !!spreadsheetExtSet[ext];
+  if (type === 'presentation') return !!presentationExtSet[ext];
+  if (type === 'text') return !!textExtSet[ext] || !!codeExtSet[ext];
+  if (type === 'archive') return !!archiveExtSet[ext];
+  if (type === 'document')
+    return !!officeExtSet[ext] || !!spreadsheetExtSet[ext] || !!presentationExtSet[ext] || !!textExtSet[ext];
+  return true;
+}
+
+// days 0 keeps everything; otherwise rows modified within that many days
+function filterSearch(rows, type, days, nowMs) {
+  if (!type && !days) return rows;
+  var since = days ? Math.floor((nowMs || Date.now()) / 1000) - days * 86400 : 0;
+  if (days === 1) {
+    var start = new Date(nowMs || Date.now());
+    start.setHours(0, 0, 0, 0);
+    since = Math.floor(start.getTime() / 1000);
+  }
+  var out = [];
+  for (var i = 0; i < rows.length; i++) {
+    if (!rawMatchesType(rows[i], type)) continue;
+    if (since && (Number(rows[i][3]) || 0) < since) continue;
+    out.push(rows[i]);
+  }
+  return out;
+}

@@ -15,6 +15,9 @@ Item {
   property int fontSize: Style.font.bodySmall
   property bool searchContents: false
   signal contentsToggled()
+  property string typeLabel: "Any type"
+  property string timeLabel: "Any time"
+  signal searchMenuRequested(string kind, Item source)
   readonly property int controlHeight: Math.max(Style.space(20), fontSize + Style.space(7))
   readonly property bool virtualView: path === "recent:" || path === "starred:"
   readonly property var crumbs: virtualView
@@ -25,6 +28,8 @@ Item {
   readonly property bool pathFocused: pathInput.activeFocus
 
   signal navigate(string target)
+  signal openInNewTab(string target)
+  signal crumbMenu(string target, Item source, real x, real y)
   signal filterEdited(string text)
   signal searchSubmitted(string text)
   signal dismissed()
@@ -165,8 +170,14 @@ Item {
                   }
 
                   MouseArea {
+                    id: crumbMouse
                     anchors.fill: parent
-                    onClicked: bar.navigate(modelData.path)
+                    acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+                    onClicked: function (mouse) {
+                      if (mouse.button === Qt.RightButton) bar.crumbMenu(modelData.path, crumbMouse, mouse.x, mouse.y)
+                      else if (mouse.button === Qt.MiddleButton) bar.openInNewTab(modelData.path)
+                      else bar.navigate(modelData.path)
+                    }
                   }
                 }
               }
@@ -313,6 +324,43 @@ Item {
               }
               bar.closeFilter()
               bar.dismissed()
+            }
+          }
+        }
+
+        // What and When, like the filters in Nautilus's search
+        Repeater {
+          model: bar.findMode ? [["type", bar.typeLabel], ["time", bar.timeLabel]] : []
+
+          delegate: Rectangle {
+            id: chip
+            required property var modelData
+            readonly property bool narrowed: modelData[1] !== "Any type" && modelData[1] !== "Any time"
+            anchors.verticalCenter: parent.verticalCenter
+            width: chipLabel.implicitWidth + Style.space(14)
+            height: bar.controlHeight
+            radius: Style.cornerRadius
+            color: chip.narrowed ? Util.alpha(Color.accent, 0.22)
+              : (chipHover.hovered ? Util.alpha(Color.foreground, 0.1) : "transparent")
+            border.width: Math.max(1, Style.space(1))
+            border.color: chip.narrowed ? Util.alpha(Color.accent, 0.7) : Util.alpha(Color.foreground, 0.25)
+
+            Text {
+              id: chipLabel
+              anchors.centerIn: parent
+              text: chip.modelData[1] + " " + Icons.actionGlyph("chevronDown")
+              color: chip.narrowed ? Color.accent : Util.alpha(Color.foreground, 0.7)
+              font.family: Style.font.family
+              font.pixelSize: Math.max(Style.font.caption, bar.fontSize - 2)
+            }
+
+            HoverHandler { id: chipHover }
+
+            MouseArea {
+              id: chipMouse
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: bar.searchMenuRequested(chip.modelData[0], chip)
             }
           }
         }

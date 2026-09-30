@@ -27,7 +27,14 @@ Item {
   readonly property real textGrowth: Math.max(1, nameSize / 17)
   readonly property int rowHeight: Math.round((nameSize + Style.space(12)) * viewScale)
   readonly property int listIconSize: Math.round(Style.space(18) * viewScale)
-  readonly property int gridIconSize: Math.round(Style.space(view === "gallery" ? 150 : 48) * viewScale)
+  // Grid cells follow Nautilus's medium zoom at 100%: 96px icons in a 164px cell,
+  // names wrapping to at most three lines
+  readonly property int gridIconSize: view === "gallery" ? Math.round(Style.space(150) * viewScale)
+    : Math.round(96 * viewScale)
+  readonly property int gridLabelSize: Math.round(nameSize * viewScale)
+  readonly property int gridLabelLines: 3
+  readonly property int gridCellWidth: Math.round(164 * viewScale * textGrowth)
+  readonly property int gridCellHeight: gridIconSize + Math.ceil(gridLabelSize * 1.3) * gridLabelLines + 22
   readonly property bool compactView: view === "compact"
 
   function scaled(value) {
@@ -59,6 +66,15 @@ Item {
   property int _watchId: 0
   property string _watchPath: ""
   property var _pendingChunks: []
+  // Search filters (What and When); only apply to search results
+  property string searchType: ""
+  property int searchDays: 0
+  onSearchTypeChanged: if (pane.searching) rebuild()
+  onSearchDaysChanged: if (pane.searching) rebuild()
+
+  function searchFiltered(list) {
+    return pane.searching ? Model.filterSearch(list, pane.searchType, pane.searchDays, Date.now()) : list
+  }
 
   readonly property bool canGoBack: historyIndex > 0
   readonly property bool canGoForward: historyIndex >= 0 && historyIndex < history.length - 1
@@ -68,6 +84,7 @@ Item {
   signal activated()
   signal navigated(string newPath)
   signal openRequested(var entry)
+  signal newTabRequested(string path)
   signal contextRequested(var entry, real sceneX, real sceneY)
   signal statusChanged()
   signal zoomRequested(real delta)
@@ -486,7 +503,7 @@ Item {
       _pendingChunks = []
     }
     if (loading) {
-      rows = Model.filterByPatterns(pane.filter ? Model.filterRaw(entries, pane.filter) : entries, pane.patterns)
+      rows = searchFiltered(Model.filterByPatterns(pane.filter ? Model.filterRaw(entries, pane.filter) : entries, pane.patterns))
       statusChanged()
       return
     }
@@ -494,8 +511,8 @@ Item {
   }
 
   function rebuild() {
-    var filtered = Model.filterByPatterns(((pane.searching || pane.virtualView) || !pane.filter)
-      ? entries : Model.filterRaw(entries, pane.filter), pane.patterns)
+    var filtered = searchFiltered(Model.filterByPatterns(((pane.searching || pane.virtualView) || !pane.filter)
+      ? entries : Model.filterRaw(entries, pane.filter), pane.patterns))
     if (pane.virtualView
         || (!pane.searching && Model.isDefaultOrder(pane.sortBy, pane.descending, pane.dirsFirst)))
       rows = filtered
@@ -600,10 +617,23 @@ Item {
     else pane.openRequested(entry)
   }
 
-  function gridLabel(name) {
+  // Names longer than three wrapped lines lose their middle, keeping the
+  // extension in view, as Nautilus does. probe is a hidden Text laid out
+  // like the label, so the lines are measured rather than guessed.
+  function fitGridLabel(name, probe) {
     var text = String(name || "")
-    if (text.length <= 26) return text
-    return text.substring(0, 14) + "\u2026" + text.substring(text.length - 10)
+    probe.text = text
+    if (probe.lineCount <= pane.gridLabelLines) return text
+    var tail = Math.min(8, Math.floor(text.length / 4))
+    var head = text.length - tail - 1
+    var cut = text
+    while (head > 1) {
+      head -= 1
+      cut = text.substring(0, head).replace(/\s+$/, "") + "\u2026" + text.substring(text.length - tail)
+      probe.text = cut
+      if (probe.lineCount <= pane.gridLabelLines) return cut
+    }
+    return cut
   }
 
   function previewable(entry) {
@@ -621,6 +651,13 @@ Item {
     if (!pane.thumbnails || !service || !Model.hasThumbnailer(entry)) return ""
     if (service.thumbVersion < 0) return ""
     return service.thumbnailFor(entry.path, entry.mtime)
+  }
+
+  // Middle click, as in Nautilus: a folder opens in a new tab, a file opens
+  function middleOpen(entry) {
+    if (!entry) return
+    if (entry.isDir && !entry.isBroken) pane.newTabRequested(entry.path)
+    else pane.openRequested(entry)
   }
 
   function openRow(row) {
@@ -961,6 +998,7 @@ Item {
                 pane.contextRequested(row.entry, mouse.x + row.x, mouse.y + row.y)
                 return
               }
+              if (mouse.button === Qt.MiddleButton) { pane.middleOpen(row.entry); return }
               narrowOnRelease = pane.pressItem(row.index, mouse)
               if (mouse.button === Qt.LeftButton) pane.prepareDrag(row.entry)
             }
@@ -1085,9 +1123,11 @@ Item {
         model: pane.rows
         visible: pane.view !== "list"
         cellWidth: pane.compactView ? Math.round(Style.space(230) * pane.viewScale)
-          : Math.round(Style.space(pane.view === "gallery" ? 190 : 140) * pane.viewScale * pane.textGrowth)
+          : pane.view === "gallery" ? Math.round(Style.space(190) * pane.viewScale * pane.textGrowth)
+          : pane.gridCellWidth
         cellHeight: pane.compactView ? pane.rowHeight + Style.space(2)
-          : Math.round(Style.space(pane.view === "gallery" ? 206 : 116) * pane.viewScale * pane.textGrowth)
+          : pane.view === "gallery" ? Math.round(Style.space(206) * pane.viewScale * pane.textGrowth)
+          : pane.gridCellHeight
         cacheBuffer: 600
         boundsBehavior: Flickable.StopAtBounds
 
@@ -1128,7 +1168,7 @@ Item {
           MouseArea {
             id: cellMouse
             anchors.fill: parent
-            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
             drag.target: cellDrag
             drag.threshold: Style.space(8)
             property bool narrowOnRelease: false
@@ -1139,6 +1179,7 @@ Item {
                 pane.contextRequested(cell.entry, mouse.x + cell.x, mouse.y + cell.y)
                 return
               }
+              if (mouse.button === Qt.MiddleButton) { pane.middleOpen(cell.entry); return }
               narrowOnRelease = pane.pressItem(cell.index, mouse)
               pane.prepareDrag(cell.entry)
             }
@@ -1146,7 +1187,10 @@ Item {
               if (narrowOnRelease && !drag.active) pane.setCursor(cell.index, false, false)
               narrowOnRelease = false
             }
-            onDoubleClicked: pane.openEntry(cell.entry)
+            onDoubleClicked: function (mouse) {
+              if (mouse.button !== Qt.LeftButton) return
+              pane.openEntry(cell.entry)
+            }
           }
 
           Row {
@@ -1199,14 +1243,16 @@ Item {
           }
 
           Column {
-            anchors.centerIn: parent
+            anchors.centerIn: pane.view === "gallery" ? parent : undefined
+            anchors.horizontalCenter: pane.view === "gallery" ? undefined : parent.horizontalCenter
+            y: pane.view === "gallery" ? 0 : 8
             width: parent.width - Style.space(12)
-            spacing: Style.space(6)
+            spacing: pane.view === "gallery" ? Style.space(6) : 6
             visible: !pane.compactView
 
             Item {
               anchors.horizontalCenter: parent.horizontalCenter
-              width: pane.view === "gallery" ? parent.width : Style.space(48)
+              width: pane.view === "gallery" ? parent.width : pane.gridIconSize
               height: pane.gridIconSize
 
               Text {
@@ -1216,7 +1262,8 @@ Item {
                 color: cell.entry.isBroken ? Color.urgent
                   : (cell.entry.isDir ? pane.accent : Util.alpha(pane.fg, 0.8))
                 font.family: Style.font.family
-                font.pixelSize: pane.scaled(pane.view === "gallery" ? Style.font.displayLarge * 2 : Style.font.displayLarge)
+                font.pixelSize: pane.view === "gallery" ? pane.scaled(Style.font.displayLarge * 2)
+                  : Math.round(pane.gridIconSize * 0.72)
               }
 
               Image {
@@ -1226,7 +1273,7 @@ Item {
                 height: parent.height
                 visible: !pane.compactView && source != "" && status === Image.Ready
                 source: !pane.compactView ? pane.previewSource(cell.entry) : ""
-                sourceSize.width: pane.view === "gallery" ? Style.space(360) : Style.space(96)
+                sourceSize.width: pane.view === "gallery" ? Style.space(360) : pane.gridIconSize * 2
                 sourceSize.height: pane.gridIconSize * 2
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
@@ -1237,15 +1284,38 @@ Item {
             }
 
             Text {
+              id: gridName
               width: parent.width
               horizontalAlignment: Text.AlignHCenter
-              text: pane.view === "gallery" ? cell.entry.name : pane.gridLabel(cell.entry.name)
+              text: pane.view === "gallery" ? cell.entry.name : fitted
               color: pane.fg
               font.family: Style.font.family
-              font.pixelSize: pane.scaled(pane.nameSize)
-              maximumLineCount: pane.view === "gallery" ? 1 : 2
-              wrapMode: pane.view === "gallery" ? Text.NoWrap : Text.WrapAnywhere
-              elide: pane.view === "gallery" ? Text.ElideMiddle : Text.ElideNone
+              font.pixelSize: pane.view === "gallery" ? pane.scaled(pane.nameSize) : pane.gridLabelSize
+              maximumLineCount: pane.view === "gallery" ? 1 : pane.gridLabelLines
+              wrapMode: pane.view === "gallery" ? Text.NoWrap : Text.WrapAtWordBoundaryOrAnywhere
+              elide: pane.view === "gallery" ? Text.ElideMiddle : Text.ElideRight
+
+              property string fitted: ""
+              readonly property string fitName: cell.entry.name
+              readonly property int fitSize: pane.gridLabelSize
+              readonly property string fitView: pane.view
+              function refit() {
+                if (pane.view === "grid" && width > 0) fitted = pane.fitGridLabel(fitName, labelProbe)
+              }
+              onFitNameChanged: refit()
+              onFitSizeChanged: refit()
+              onFitViewChanged: refit()
+              onWidthChanged: refit()
+              Component.onCompleted: refit()
+
+              Text {
+                id: labelProbe
+                visible: false
+                width: gridName.width
+                font.family: gridName.font.family
+                font.pixelSize: gridName.font.pixelSize
+                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+              }
             }
           }
         }

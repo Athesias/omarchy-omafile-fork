@@ -54,4 +54,16 @@ QtObject {
   function runCommandOn(text, path) { record("runCommandOn", [text, path]); return true }
   function openExternally(path) { record("openExternally", [path]) }
   function finishPick(result) { record("finishPick", [result]); pickRequest = null }
+  property var undoStack: []
+  property var starred: []
+  property var systemClipboard: null
+  function beginTransfer(op, paths, dest, conflict) { record("beginTransfer", [op, paths, dest, conflict]) }
+  function extractArchive(path, onDone, onError, dest) { record("extractArchive", [path, dest]); if (onDone) onDone({ path: path }) }
+  function forgetRecent(paths, onDone, onError) { record("forgetRecent", [paths]); if (onDone) onDone({}) }
+  function readSystemClipboard(onDone) { onDone(systemClipboard) }
+  function makeLink(target, linkPath, onDone, onError) { record("makeLink", [target, linkPath]); if (onDone) onDone({}) }
+  function openTerminal(path) { record("openTerminal", [path]) }
+  function isStarred(path) { return starred.indexOf(path) >= 0 }
+  function toggleStarred(paths) { record("toggleStarred", [paths]); return true }
+  function isBookmarked() { return false }
 }

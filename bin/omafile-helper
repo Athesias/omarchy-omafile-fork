@@ -1799,6 +1799,43 @@ def op_recent(req, cancel_event):
     send_done(req_id, total=len(rows))
 
 
+RECENT_BOOKMARK = re.compile(rb'[ \t]*<bookmark\b[^>]*\bhref="([^"]*)"[^>]*>.*?</bookmark>[ \t]*\n?', re.S)
+
+
+def op_forgetrecent(req):
+    """Remove from Recent, as in Nautilus: drop the paths from the shared history."""
+    req_id = req["id"]
+    paths = req.get("paths") or []
+    wanted = set(to_bytes(p) for p in paths if isinstance(p, str))
+    try:
+        with open(RECENT_FILE, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e), RECENT_FILE)
+        return
+    removed = [0]
+
+    def drop(match):
+        href = match.group(1).decode("utf-8", "replace").replace("&amp;", "&")
+        if href.startswith("file://") and percent_decode(href[7:]) in wanted:
+            removed[0] += 1
+            return b""
+        return match.group(0)
+
+    out = RECENT_BOOKMARK.sub(drop, data)
+    if removed[0]:
+        tmp = RECENT_FILE + ".omafile-tmp"
+        try:
+            with open(tmp, "wb") as f:
+                f.write(out)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, RECENT_FILE)
+        except OSError as e:
+            send_error(req_id, errno_code(e), e.strerror or str(e), RECENT_FILE)
+            return
+    send_done(req_id, removed=removed[0])
+
+
 def op_netdiscover(req):
     req_id = req["id"]
     found = []
@@ -2125,6 +2162,13 @@ def op_extract(req, cancel_event):
         send_error(req_id, "EINVAL", "an archive file is required")
         return
     dest_dir = os.path.dirname(path)
+    # Extract to... names another folder
+    wanted = req.get("dest")
+    if isinstance(wanted, str) and wanted:
+        if not os.path.isdir(wanted):
+            send_error(req_id, "ENOTDIR", "the destination is not a folder", wanted)
+            return
+        dest_dir = wanted
     try:
         work = tempfile.mkdtemp(prefix=".omafile-extract-", dir=dest_dir)
     except OSError as e:
@@ -2703,6 +2747,7 @@ SIMPLE_OPS = {
     "samedev": op_samedev,
     "setbackground": op_setbackground,
     "stat": op_stat,
+    "forgetrecent": op_forgetrecent,
     "peek": op_peek,
     "trash": op_trash,
     "delete": op_delete,
