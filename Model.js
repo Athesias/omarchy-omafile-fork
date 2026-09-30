@@ -347,6 +347,43 @@ function isAncestor(ancestorPath, path) {
   return p.indexOf(a + '/') === 0;
 }
 
+function trashRootOf(path, homeTrash) {
+  var raw = String(path || '');
+  if (raw === '' || raw.charAt(0) !== '/') return '';
+  var p = normalizePath(raw);
+  if (homeTrash) {
+    var home = normalizePath(homeTrash);
+    if (p === home || isAncestor(home, p)) return home;
+  }
+  var m = /^(.*\/\.Trash-\d+\/files)(\/|$)/.exec(p);
+  return m ? m[1] : '';
+}
+
+function isTrashPath(path, homeTrash) {
+  return trashRootOf(path, homeTrash) !== '';
+}
+
+function allInTrash(paths, homeTrash) {
+  var list = paths || [];
+  if (list.length === 0) return false;
+  for (var i = 0; i < list.length; i++) {
+    var root = trashRootOf(list[i], homeTrash);
+    if (root === '' || root === normalizePath(list[i])) return false;
+  }
+  return true;
+}
+
+function trashItemNames(paths, homeTrash) {
+  var list = paths || [];
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    var p = normalizePath(list[i]);
+    var root = trashRootOf(p, homeTrash);
+    if (root !== '' && root !== p && parentPath(p) === root) out.push(p.slice(root.length + 1));
+  }
+  return out;
+}
+
 function commonPrefix(a, b) {
   var n = Math.min(a.length, b.length);
   var i = 0;

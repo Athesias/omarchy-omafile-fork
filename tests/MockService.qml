@@ -49,8 +49,27 @@ QtObject {
   function noteRecent() {}
   function trashFilesPath() { return "/tmp/.trash" }
   function driveHidden() { return false }
-  function networkMounts() { return [] }
-  function statPaths(paths, cb) {}
+  function networkMounts() { return drives.filter(function (d) { return d.network === true }) }
+  property var statItems: ({})
+  property var devices: ({})
+  function statPaths(paths, cb) {
+    record("statPaths", [paths])
+    var items = paths.map(function (p) {
+      var item = mock.statItems[p] || { error: "ENOENT" }
+      var out = { path: p, dev: mock.devices[p] !== undefined ? mock.devices[p] : 1 }
+      for (var k in item) out[k] = item[k]
+      return out
+    })
+    if (cb) cb(items)
+  }
+  function beginTransfer(op, sources, dest, conflict) { record("beginTransfer", [op, sources, dest, conflict]); return 1 }
+  function trashPaths(paths, onDone, onError) { record("trashPaths", [paths]); if (onDone) onDone() }
+  function deletePaths(paths, onDone, onError) { record("deletePaths", [paths]); if (onDone) onDone({ results: [] }) }
+  function restoreFromTrash(names, onDone, onError) {
+    record("restoreFromTrash", [names])
+    if (onDone) onDone({ results: names.map(function (n) { return { path: n, ok: true } }) })
+  }
+  function emptyTrash(onDone) { record("emptyTrash", []); trashCount = 0; if (onDone) onDone({}) }
   function peekFile(path, limit, onDone, onError) { record("peekFile", [path]); onDone({ text: "key: value\n", binary: false, truncated: false }) }
   function openWith(command, path, inTerminal) { record("openWith", [command, path, inTerminal]) }
   function runCommandOn(text, path) { record("runCommandOn", [text, path]); return true }
@@ -64,6 +83,4 @@ QtObject {
   function clearSystemClipboard() { record("clearSystemClipboard", []) }
   function clearClipboard() { record("clearClipboard", []) }
   function sameDevice(path, dest, onDone) { onDone(sameDrive) }
-  function beginTransfer(op, paths, dest, conflict) { record("beginTransfer", [op, paths, dest, conflict]) }
-  function trashPaths(paths, onDone, onError) { record("trashPaths", [paths]) }
 }

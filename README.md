@@ -13,7 +13,7 @@ A lightweight, fast file manager plugin for Omarchy running in the shell.
 * Can stand in for the GTK file chooser, so browser uploads and downloads open Omafile
 * Live directory watching: external changes appear immediately
 * Background copy and move with persistent progress tracking
-* Freedesktop trash integration, compatible with GNOME Files
+* Freedesktop trash integration, compatible with GNOME Files, with Empty trash and Restore in the trash view
 * Recursive file search across directories
 * Image previews in list, compact and grid view, plus thumbnails for videos, PDFs, office files and anything else your system has a thumbnailer for
 * Recent files, and bookmarks for the folders you use most
@@ -120,7 +120,7 @@ Right click a folder, or empty space for the folder you are in, and choose Open 
 
 ### Settings
 
-Ctrl+Comma, or the gear in the toolbar. Hidden files, folders-first ordering, image previews, trash behaviour, the drive list, and the trash can in the bar.
+Ctrl+Comma, or Settings in the menu at the right end of the toolbar. Hidden files, folders-first ordering, image previews, trash behaviour, the drive list, and the trash can in the bar.
 
 Settings also picks whether Omafile is a normal window or a popup panel centred over the desktop that closes when you click away. The change applies immediately, even while Omafile is open.
 
@@ -232,10 +232,12 @@ The context menu is a real focus target: arrows move through it, Enter or Space 
 | `F2` | Rename |
 | `Ctrl+Shift+N` | New folder |
 | `Ctrl+N` | New file |
-| `Delete` | Move to trash |
+| `Delete` | Move to trash, or delete permanently when already in the trash |
 | `Shift+Delete` | Delete permanently |
 | `Ctrl+I` / `Alt+Enter` | Properties |
 | `Ctrl+D` | Bookmark this folder |
+
+Inside the trash, a bar above the files shows how many items it holds and has an **Empty trash** button, which asks before deleting everything for good. The right click menu there offers **Restore**, which puts items back where they came from, and **Delete permanently** in place of Move to trash.
 
 Undo covers trash, rename, move, copy and new file or folder. Undoing a trash puts the items back where they were, and undoing a copy trashes what the copy created.
 

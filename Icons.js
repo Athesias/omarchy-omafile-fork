@@ -71,6 +71,7 @@ var actionGlyphs = {
   trash: '',
   trashFull: '',
   'delete': '',
+  restore: '',
   newfolder: '',
   newfile: '',
   up: '',

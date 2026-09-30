@@ -503,3 +503,32 @@ test('saved gallery views fall back to grid', function () {
   assert.equal(Model.normalizeViewMode(undefined), 'list');
 });
 
+test('trash paths are recognised in the home trash and on other drives', function () {
+  var home = '/home/me/.local/share/Trash/files';
+  assert.equal(Model.trashRootOf(home, home), home);
+  assert.equal(Model.trashRootOf(home + '/', home), home);
+  assert.equal(Model.trashRootOf(home + '/old/inner.txt', home), home);
+  assert.equal(Model.trashRootOf('/run/media/me/usb/.Trash-1000/files/a.txt', home), '/run/media/me/usb/.Trash-1000/files');
+  assert.equal(Model.trashRootOf('/home/me/.local/share/Trash', home), '');
+  assert.equal(Model.trashRootOf('/home/me/.local/share/Trash/info/a.txt.trashinfo', home), '');
+  assert.equal(Model.trashRootOf('/home/me/files', home), '');
+  assert.equal(Model.trashRootOf('recent:', home), '');
+  assert.equal(Model.isTrashPath(home + '/a.txt', home), true);
+  assert.equal(Model.isTrashPath('/tmp/a.txt', home), false);
+  assert.equal(Model.isTrashPath('/tmp/a.txt', ''), false);
+});
+
+test('only items inside a trash count as already trashed', function () {
+  var home = '/home/me/.local/share/Trash/files';
+  assert.equal(Model.allInTrash([home + '/a.txt', home + '/dir/b.txt'], home), true);
+  assert.equal(Model.allInTrash([home + '/a.txt', '/tmp/b.txt'], home), false);
+  assert.equal(Model.allInTrash([home], home), false);
+  assert.equal(Model.allInTrash([], home), false);
+});
+
+test('trash item names only cover the top level of a trash', function () {
+  var home = '/home/me/.local/share/Trash/files';
+  var paths = [home + '/a.txt', home + '/dir/b.txt', '/tmp/c.txt', '/mnt/usb/.Trash-1000/files/d.1.txt', home];
+  assert.deepEqual(Array.from(Model.trashItemNames(paths, home)), ['a.txt', 'd.1.txt']);
+});
+

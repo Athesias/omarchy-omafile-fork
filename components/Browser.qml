@@ -578,9 +578,16 @@ Item {
     if (paths.length === 0) return
     service.beginTransfer(op, paths, to.path, "ask")
   }
-  function doTrash() {
-    var paths = activePane().selectedPaths()
+  function trashRoot() {
+    return service && typeof service.trashFilesPath === "function" ? service.trashFilesPath() : ""
+  }
+  function paneInTrash(p) {
+    return p !== null && p !== undefined && !p.virtualView && Model.isTrashPath(p.path, trashRoot())
+  }
+  function doTrash(given) {
+    var paths = given || activePane().selectedPaths()
     if (paths.length === 0) return
+    if (Model.allInTrash(paths, trashRoot())) return askDelete(paths)
     if (service.settingNow("useTrash", true) !== true) return askDelete(paths)
     if (service.settingNow("confirmTrash", true) !== true) return performTrash(paths)
     confirmAction = "trash"
@@ -605,8 +612,52 @@ Item {
     confirm.opened = true
   }
   function performDelete(paths) {
+    service.deletePaths(paths, function () { root.refreshPanes() }, null)
+    statusText = Model.formatCount(paths.length, "item deleted", "items deleted")
+  }
+  function restorablePaths() {
     var p = activePane()
-    service.deletePaths(paths, function () { p.refresh() }, null)
+    var paths = p.selectedPaths()
+    if (paths.length === 0 && p.cursorEntry()) paths = [p.cursorEntry().path]
+    return Model.trashItemNames(paths, trashRoot())
+  }
+  function doRestore() {
+    var names = restorablePaths()
+    if (names.length === 0 || !service) return
+    service.restoreFromTrash(names, function (m) {
+      var ok = 0
+      var results = m && m.results ? m.results : []
+      for (var i = 0; i < results.length; i++) if (results[i].ok) ok++
+      root.statusText = ok === names.length
+        ? Model.formatCount(ok, "item restored", "items restored")
+        : "Restored " + ok + " of " + names.length
+      root.refreshPanes()
+    }, function (m) {
+      root.statusText = String(m && m.message ? m.message : "Could not restore")
+    })
+  }
+  function askEmptyTrash() {
+    if (!service || service.trashCount <= 0) return
+    if (service.settingNow("confirmDelete", true) !== true) return performEmptyTrash()
+    confirmAction = "emptytrash"
+    confirm.message = "Permanently delete all " + Model.formatCount(service.trashCount, "item", "items")
+      + " in the trash? This cannot be undone."
+    confirm.confirmText = "Empty trash"
+    dialogPayload = null
+    confirm.opened = true
+  }
+  function performEmptyTrash() {
+    if (!service) return
+    service.emptyTrash(function () {
+      var panes = split ? [paneA, paneB] : [paneA]
+      for (var i = 0; i < panes.length; i++) {
+        var p = panes[i]
+        var top = Model.trashRootOf(p.path, root.trashRoot())
+        if (!p.virtualView && top !== "" && Model.normalizePath(p.path) !== top) p.navigate(top)
+        else p.refresh()
+      }
+    })
+    statusText = "Trash emptied"
   }
   function doRename() {
     var p = activePane()
@@ -664,9 +715,12 @@ Item {
     }
     items.push({ key: "paste", label: "Paste", glyph: Icons.actionGlyph("paste"), disabled: !service })
     if (hasEntry) {
+      var trashed = Model.allInTrash([entry.path], trashRoot())
       items.push({ key: "sep2", label: "", glyph: "" })
+      if (trashed && Model.trashItemNames([entry.path], trashRoot()).length > 0)
+        items.push({ key: "restore", label: "Restore", glyph: Icons.actionGlyph("restore") })
       items.push({ key: "rename", label: "Rename", glyph: Icons.actionGlyph("rename") })
-      items.push({ key: "trash", label: "Move to trash", glyph: Icons.actionGlyph("trash") })
+      if (!trashed) items.push({ key: "trash", label: "Move to trash", glyph: Icons.actionGlyph("trash") })
       items.push({ key: "delete", label: "Delete permanently", glyph: Icons.actionGlyph("delete") })
       items.push({ key: "sep3", label: "", glyph: "" })
       items.push({ key: "copypath", label: "Copy path", glyph: Icons.actionGlyph("copy") })
@@ -685,6 +739,11 @@ Item {
       if (service && service.claudeAvailable)
         items.push({ key: "claude", label: "Open Claude Code here", glyph: Icons.actionGlyph("terminal") })
       items.push({ key: "refresh", label: "Refresh", glyph: Icons.actionGlyph("refresh") })
+      if (paneInTrash(p)) {
+        items.push({ key: "sep4", label: "", glyph: "" })
+        items.push({ key: "emptytrash", label: "Empty trash", glyph: Icons.actionGlyph("delete"),
+          disabled: !service || service.trashCount <= 0 })
+      }
     }
     return items
   }
@@ -709,6 +768,8 @@ Item {
     else if (key === "rename") doRename()
     else if (key === "trash") doTrash()
     else if (key === "delete") askDelete(null)
+    else if (key === "restore") doRestore()
+    else if (key === "emptytrash") askEmptyTrash()
     else if (key === "copypath") service.copyToClipboardText(entry ? entry.path : p.path)
     else if (key === "properties") showProperties(entry)
     else if (key === "newfolder") showDialog("newfolder", "New folder", "untitled folder", null)
@@ -1048,7 +1109,9 @@ Item {
     var row = Math.max(0, p.cursorIndex)
     menuX = (sidebarVisible ? sidebar.width : 0) + Style.space(60)
       + (activeSide === 1 ? sideA.width : 0)
+    var trashBar = activeSide === 1 ? trashBarB : trashBarA
     menuY = toolbar.height + Style.space(40) + Math.min(row, 18) * Style.space(22)
+      + (trashBar.visible ? trashBar.height : 0)
     menuOpen = true
   }
 
@@ -1562,11 +1625,24 @@ Item {
               onAddTab: root.newTab(0, null)
             }
 
+            TrashBar {
+              id: trashBarA
+              objectName: "trashBarA"
+              width: parent.width
+              visible: root.paneInTrash(paneA)
+              service: root.service
+              onEmptyRequested: {
+                root.activeSide = 0
+                root.askEmptyTrash()
+              }
+            }
+
             PaneView {
               id: paneA
               width: parent.width
               patterns: root.picking ? root.pickPatterns() : []
               height: parent.height - (tabStripA.visible ? tabStripA.height : 0)
+                - (trashBarA.visible ? trashBarA.height : 0)
               service: root.service
               viewScale: root.viewScale
               active: root.activeSide === 0
@@ -1587,6 +1663,7 @@ Item {
                 root.menuCursor = -1
                 root.menuX = x + (root.sidebarVisible ? sidebar.width : 0)
                 root.menuY = y + toolbar.height + (tabStripA.visible ? tabStripA.height : 0)
+                  + (trashBarA.visible ? trashBarA.height : 0)
                 root.menuOpen = true
               }
             }
@@ -1610,11 +1687,24 @@ Item {
               onAddTab: root.newTab(1, null)
             }
 
+            TrashBar {
+              id: trashBarB
+              objectName: "trashBarB"
+              width: parent.width
+              visible: root.paneInTrash(paneB)
+              service: root.service
+              onEmptyRequested: {
+                root.activeSide = 1
+                root.askEmptyTrash()
+              }
+            }
+
             PaneView {
               id: paneB
               width: parent.width
               patterns: root.picking ? root.pickPatterns() : []
               height: parent.height - (tabStripB.visible ? tabStripB.height : 0)
+                - (trashBarB.visible ? trashBarB.height : 0)
               service: root.service
               viewScale: root.viewScale
               active: root.activeSide === 1
@@ -1635,6 +1725,7 @@ Item {
                 root.menuCursor = -1
                 root.menuX = x + (root.sidebarVisible ? sidebar.width : 0) + sideA.width
                 root.menuY = y + toolbar.height + (tabStripB.visible ? tabStripB.height : 0)
+                  + (trashBarB.visible ? trashBarB.height : 0)
                 root.menuOpen = true
               }
             }
@@ -2915,7 +3006,8 @@ Item {
         var action = root.confirmAction
         root.dialogPayload = null
         root.confirmAction = ""
-        if (targets && action === "trash") root.performTrash(targets)
+        if (action === "emptytrash") root.performEmptyTrash()
+        else if (targets && action === "trash") root.performTrash(targets)
         else if (targets && action === "pickreplace") root.completePick(targets)
         else if (targets && action === "openmany") root.openEntries(targets)
         else if (targets) root.performDelete(targets)
@@ -2975,7 +3067,7 @@ Item {
       { keys: "F2", label: "Rename" },
       { keys: "Ctrl+Shift+N", label: "New folder" },
       { keys: "Ctrl+N", label: "New file" },
-      { keys: "Delete", label: "Move to trash" },
+      { keys: "Delete", label: "Move to trash, or delete permanently inside the trash" },
       { keys: "Shift+Delete", label: "Delete permanently" },
       { keys: "Ctrl+I / Alt+Enter", label: "Properties" },
       { keys: "Ctrl+D", label: "Bookmark this folder" },

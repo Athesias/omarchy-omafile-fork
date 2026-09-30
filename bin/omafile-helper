@@ -901,10 +901,22 @@ def op_trash(req):
             results.append({"path": p, "ok": False, "message": e.strerror or str(e)})
     send_done(req_id, results=results)
 
+def trash_info_for(path_bytes, files_dirs):
+    parent = os.path.dirname(path_bytes)
+    if os.path.basename(parent) != b"files":
+        return None
+    if files_dirs[0] is None:
+        files_dirs[0] = {os.path.realpath(f): i for f, i in list_trash_roots()}
+    info_dir = files_dirs[0].get(os.path.realpath(parent))
+    if info_dir is None:
+        return None
+    return os.path.join(info_dir, os.path.basename(path_bytes) + b".trashinfo")
+
 def op_delete(req):
     req_id = req["id"]
     paths = req.get("paths") or []
     results = []
+    files_dirs = [None]
     for p in paths:
         try:
             b = to_bytes(p)
@@ -913,6 +925,12 @@ def op_delete(req):
                 shutil.rmtree(b)
             else:
                 os.unlink(b)
+            info_path = trash_info_for(b, files_dirs)
+            if info_path is not None:
+                try:
+                    os.unlink(info_path)
+                except OSError:
+                    pass
             results.append({"path": p, "ok": True})
         except OSError as e:
             results.append({"path": p, "ok": False, "message": e.strerror or str(e)})

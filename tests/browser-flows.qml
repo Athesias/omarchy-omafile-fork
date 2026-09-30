@@ -200,6 +200,94 @@ ShellRoot {
         wait(100)
       }
 
+      function labels(entry) {
+        return browser.contextActions(entry).map(function (a) { return a.label })
+      }
+
+      function test_5a_trashView() {
+        waitRows()
+        pane().setSortOrder("name", false)
+        var bar = findChild(browser, "trashBarA")
+        verify(!bar.visible, "no trash bar outside the trash")
+        pane().setCursor(0, false, false)
+        verify(labels(pane().cursorEntry()).indexOf("Move to trash") >= 0)
+        verify(labels(pane().cursorEntry()).indexOf("Restore") < 0)
+
+        mock.trashCount = 0
+        pane().navigate("/tmp/.trash")
+        waitRows()
+        waitForRendering(browser)
+        verify(bar.visible, "trash bar shows in the trash")
+        var button = findChild(bar, "emptyTrashButton")
+        verify(!button.enabled, "empty trash is disabled when the trash is empty")
+        compare(findChild(bar, "trashSummary").text, "Empty")
+
+        mock.trashCount = 3
+        verify(button.enabled)
+        compare(findChild(bar, "trashSummary").text, "3 items")
+        mock.calls = []
+        mouseClick(button)
+        verify(findChild(browser, "trashBarA") !== null)
+        compare(browser.confirmAction, "emptytrash")
+        compare(mock.called("emptyTrash"), null, "asks before emptying")
+        keyClick(Qt.Key_Return)
+        verify(mock.called("emptyTrash") !== null)
+        compare(browser.confirmAction, "")
+        verify(!button.enabled, "disabled again once emptied")
+        compare(pane().path, "/tmp/.trash")
+
+        waitRows()
+        pane().setCursor(0, false, false)
+        var entry = pane().cursorEntry()
+        compare(entry.path, "/tmp/.trash/alpha.yml")
+        var inTrash = labels(entry)
+        verify(inTrash.indexOf("Move to trash") < 0, "no second trash from the trash")
+        verify(inTrash.indexOf("Delete permanently") >= 0)
+        verify(inTrash.indexOf("Restore") >= 0)
+        var empty = browser.contextActions(null)
+        var emptyItem = empty.filter(function (a) { return a.key === "emptytrash" })[0]
+        verify(emptyItem !== undefined, "empty area menu offers Empty trash")
+        verify(emptyItem.disabled === true)
+
+        mock.calls = []
+        keyClick(Qt.Key_Delete)
+        compare(mock.called("trashPaths"), null, "Delete never trashes again")
+        compare(browser.confirmAction, "delete")
+        keyClick(Qt.Key_Return)
+        compare(mock.called("deletePaths").args[0], ["/tmp/.trash/alpha.yml"])
+
+        mock.calls = []
+        pane().setCursor(0, false, false)
+        keyClick(Qt.Key_Delete, Qt.ShiftModifier)
+        compare(browser.confirmAction, "delete")
+        keyClick(Qt.Key_Escape)
+        compare(browser.confirmAction, "")
+        compare(mock.called("deletePaths"), null)
+
+        pane().setCursor(1, false, false)
+        browser.menuEntry = pane().cursorEntry()
+        var restoring = browser.menuEntry.name
+        browser.menuActions = browser.contextActions(browser.menuEntry)
+        menuItem("Restore")
+        compare(mock.called("restoreFromTrash").args[0], [restoring])
+        compare(browser.statusText, "1 item restored")
+
+        waitRows()
+        mock.calls = []
+        mock.values = { confirmTrash: false }
+        pane().setCursor(0, false, false)
+        browser.menuActions = browser.contextActions(pane().cursorEntry())
+        menuItem("Delete permanently")
+        compare(mock.called("trashPaths"), null)
+        compare(browser.confirmAction, "delete")
+        keyClick(Qt.Key_Escape)
+        mock.values = ({})
+
+        pane().navigate("/tmp")
+        waitRows()
+        verify(!bar.visible)
+      }
+
       function test_7_pickOpen() {
         waitRows()
         mock.pickRequest = { mode: "open", multiple: false, directory: false, result: "/run/x.json",

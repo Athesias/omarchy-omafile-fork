@@ -602,7 +602,17 @@ Item {
   }
 
   function deletePaths(paths, onDone, onError) {
-    return request({ op: "delete", paths: paths }, { onDone: onDone, onError: onError })
+    return request({ op: "delete", paths: paths }, {
+      onDone: function (m) { refreshTrash(); if (onDone) onDone(m) },
+      onError: onError
+    })
+  }
+
+  function restoreFromTrash(names, onDone, onError) {
+    return request({ op: "restore", items: names }, {
+      onDone: function (m) { refreshTrash(); if (onDone) onDone(m) },
+      onError: onError
+    })
   }
 
   function emptyTrash(onDone) {

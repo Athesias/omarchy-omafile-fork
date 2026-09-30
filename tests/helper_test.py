@@ -729,6 +729,29 @@ class TrashTests(HelperTestCase):
         self.assertFalse(os.path.exists(trashed))
         self.assertFalse(os.path.exists(info_file))
 
+    def test_deleting_a_trashed_item_removes_its_trashinfo(self):
+        target = self.path("gone.txt")
+        with open(target, "w") as f:
+            f.write("bye")
+        self.helper.call({"id": self.next_id(), "op": "trash", "paths": [target]})
+        files_dir = os.path.join(self.data_home, "Trash", "files")
+        info_file = os.path.join(self.data_home, "Trash", "info", "gone.txt.trashinfo")
+        trashed = os.path.join(files_dir, "gone.txt")
+        self.assertTrue(os.path.isfile(info_file))
+        loose = os.path.join(self.root, "files")
+        os.makedirs(loose)
+        other = os.path.join(loose, "keep.txt")
+        with open(other, "w") as f:
+            f.write("x")
+        msgs = self.helper.call({"id": self.next_id(), "op": "delete", "paths": [trashed, other]})
+        done = self.terminal(msgs)
+        self.assertTrue(all(r["ok"] for r in done["results"]))
+        self.assertFalse(os.path.exists(trashed))
+        self.assertFalse(os.path.exists(info_file))
+        info_msgs = self.helper.call({"id": self.next_id(), "op": "trashinfo"})
+        names = [item["name"] for item in [m for m in info_msgs if m["t"] == "trash"][0]["items"]]
+        self.assertNotIn("gone.txt", names)
+
     def test_trash_percent_encoding(self):
         weird = self.path("weird name 100% done.txt")
         with open(weird, "w") as f:

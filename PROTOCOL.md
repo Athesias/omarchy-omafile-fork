@@ -172,7 +172,8 @@ are and copies when they are not.
 with `files/` and `info/`, a `DeletionDate` in local time, `%`-encoded paths in
 `Path=`, and de-duplicated names. Files on another filesystem go to that volume's
 `.Trash-$uid/`. `delete` is permanent and the plugin only sends it after an explicit
-confirmation. Both reply `{"t": "done", "results": [{"path": P, "ok": true}]}`. A successful `trash`
+confirmation. Deleting an item that sits directly in a trash `files/` directory also removes
+its `.trashinfo`, so the trash count stays right. Both reply `{"t": "done", "results": [{"path": P, "ok": true}]}`. A successful `trash`
 result also carries `trashinfo`, the name of the `.trashinfo` entry it created, so the
 caller can hand that exact name back to `restore` and undo the deletion.
 
