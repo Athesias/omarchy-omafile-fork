@@ -515,11 +515,45 @@ Item {
     statusText = Model.formatCount(paths.length, "item cut", "items cut")
   }
   function doPaste() {
-    var clip = service ? service.clipboard : null
-    if (!clip || !clip.paths || clip.paths.length === 0) return
-    var p = activePane()
-    service.beginTransfer(clip.mode === "cut" ? "move" : "copy", clip.paths, p.path, "ask")
-    if (clip.mode === "cut") service.clearClipboard()
+    if (!service) return
+    var dest = activePane().path
+    service.readSystemClipboard(function (sys) {
+      var clip = sys || service.clipboard
+      if (!clip || !clip.paths || clip.paths.length === 0) {
+        root.statusText = "Nothing to paste"
+        return
+      }
+      service.beginTransfer(clip.mode === "cut" ? "move" : "copy", clip.paths, dest, "ask")
+      if (clip.mode === "cut") {
+        service.clearClipboard()
+        service.clearSystemClipboard()
+      }
+    })
+  }
+
+  function handleDrop(urls, dest) {
+    if (!service) return
+    var paths = []
+    for (var i = 0; i < urls.length; i++) {
+      var u = String(urls[i])
+      if (u.indexOf("file://") !== 0) continue
+      var path = decodeURIComponent(u.substring(7))
+      if (dest !== "trash:") {
+        if (path === dest || dest.indexOf(path + "/") === 0) continue
+        if (Model.parentPath(path) === dest) continue
+      }
+      paths.push(path)
+    }
+    if (paths.length === 0) return
+    if (dest === "trash:") {
+      performTrash(paths)
+      return
+    }
+    service.sameDevice(paths[0], dest, function (same) {
+      service.beginTransfer(same ? "move" : "copy", paths, dest, "ask")
+      root.statusText = (same ? "Moving " : "Copying ") + Model.formatCount(paths.length, "item", "items")
+        + " to " + Model.basename(dest)
+    })
   }
   function clampViewScale(value) {
     var n = Number(value)
@@ -626,8 +660,7 @@ Item {
       items.push({ key: "copy", label: "Copy", glyph: Icons.actionGlyph("copy") })
       items.push({ key: "cut", label: "Cut", glyph: Icons.actionGlyph("cut") })
     }
-    items.push({ key: "paste", label: "Paste", glyph: Icons.actionGlyph("paste"),
-      disabled: !service || !service.clipboard || service.clipboard.paths.length === 0 })
+    items.push({ key: "paste", label: "Paste", glyph: Icons.actionGlyph("paste"), disabled: !service })
     if (hasEntry) {
       items.push({ key: "sep2", label: "", glyph: "" })
       items.push({ key: "rename", label: "Rename", glyph: Icons.actionGlyph("rename") })
@@ -1476,6 +1509,7 @@ Item {
           }
           onOpenInNewTab: function (target) { root.newTab(root.activeSide, target) }
           onRemoveBookmark: function (target) { root.service.togglePinned(target) }
+          onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
           onHideDrive: function (key) { root.service.toggleHiddenDrive(key) }
           onShowAllDrives: root.showDialog("settings", "Settings", "", null)
           onConnectServer: function (uri) {
@@ -1525,6 +1559,7 @@ Item {
               onOpenRequested: function (entry) { root.handleOpenRequest(entry) }
               onNewTabRequested: function (path) { root.newTab(0, path) }
               onNavigated: function (p) { root.rememberSession() }
+              onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
               onContextRequested: function (entry, x, y) {
                 root.menuKind = ""
                 root.menuEntry = entry
@@ -1571,6 +1606,7 @@ Item {
               onOpenRequested: function (entry) { root.handleOpenRequest(entry) }
               onNewTabRequested: function (path) { root.newTab(1, path) }
               onNavigated: function (p) { root.rememberSession() }
+              onDropRequested: function (urls, dest) { root.handleDrop(urls, dest) }
               onContextRequested: function (entry, x, y) {
                 root.menuKind = ""
                 root.menuEntry = entry

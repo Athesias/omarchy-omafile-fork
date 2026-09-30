@@ -824,6 +824,50 @@ class DirsDrivesTests(HelperTestCase):
         drives_msg = [m for m in msgs if m["t"] == "drives"][0]
         self.assertIsInstance(drives_msg["drives"], list)
 
+class ClipboardFormatTests(unittest.TestCase):
+    def load_helper(self):
+        import importlib.util
+        spec = importlib.util.spec_from_loader(
+            "omafile_helper_clipboard",
+            importlib.machinery.SourceFileLoader("omafile_helper_clipboard", HELPER_PATH))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_copy_offers_a_uri_list_and_cut_the_gnome_format(self):
+        helper = self.load_helper()
+        mime, data = helper.clipboard_payload("copy", ["/tmp/a b.txt", "/tmp/c#d"])
+        self.assertEqual(mime, "text/uri-list")
+        self.assertEqual(data, "file:///tmp/a%20b.txt\r\nfile:///tmp/c%23d\r\n")
+        mime, data = helper.clipboard_payload("cut", ["/tmp/a b.txt"])
+        self.assertEqual(mime, "x-special/gnome-copied-files")
+        self.assertEqual(data, "cut\nfile:///tmp/a%20b.txt")
+
+    def test_gnome_format_round_trips(self):
+        helper = self.load_helper()
+        paths = ["/home/u/Some file.png", "/home/u/100% done", "/home/u/ünï"]
+        mode, parsed = helper.parse_gnome_copied_files(helper.clipboard_payload("cut", paths)[1])
+        self.assertEqual(mode, "cut")
+        self.assertEqual(parsed, paths)
+
+    def test_non_file_uris_are_ignored(self):
+        helper = self.load_helper()
+        self.assertIsNone(helper.uri_to_path("https://example.com/x"))
+        self.assertIsNone(helper.uri_to_path("file://otherhost/x"))
+        self.assertIsNone(helper.uri_to_path("# comment"))
+        self.assertEqual(helper.uri_to_path("file://localhost/tmp/x"), "/tmp/x")
+
+class SameDeviceTests(HelperTestCase):
+    def test_same_folder_is_same_device(self):
+        folder = self.path("dev")
+        os.makedirs(folder)
+        msgs = self.helper.call({"id": self.next_id(), "op": "samedev", "path": folder, "dest": self.path()})
+        self.assertEqual(self.terminal(msgs)["same"], True)
+
+    def test_missing_path_is_an_error(self):
+        msgs = self.helper.call({"id": self.next_id(), "op": "samedev", "path": self.path("nope"), "dest": self.path()})
+        self.assertEqual(self.terminal(msgs)["t"], "error")
+
 class WatchTests(HelperTestCase):
     def test_watch_reports_change_and_unwatch_completes(self):
         watch_dir = self.path("watched")

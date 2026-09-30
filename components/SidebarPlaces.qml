@@ -83,6 +83,7 @@ Item {
   signal showAllDrives()
   signal connectServer(string uri)
   signal disconnectServer(string path)
+  signal dropRequested(var urls, string dest)
 
   function usablePlace(value, homePath) {
     var p = String(value || "")
@@ -255,13 +256,22 @@ Item {
                 x: Style.space(4)
                 height: Style.space(24)
                 radius: Style.cornerRadius
-                color: sidebar.currentPath === modelData.path
+                color: placeDrop.containsDrag ? Util.alpha(Color.accent, 0.3)
+                  : sidebar.currentPath === modelData.path
                   ? Util.alpha(Color.accent, 0.18)
                   : (placeHover.hovered ? Util.alpha(Color.foreground, 0.08) : "transparent")
                 border.width: cursored ? Math.max(1, Style.space(1)) : 0
                 border.color: Util.alpha(Color.accent, 0.9)
 
                 HoverHandler { id: placeHover }
+
+                DropTarget {
+                  id: placeDrop
+                  anchors.fill: parent
+                  target: modelData.path && String(modelData.path).indexOf(":") < 0
+                    && modelData.connect !== true && modelData.server !== true ? String(modelData.path) : ""
+                  onFilesDropped: function (urls, dest) { sidebar.dropRequested(urls, dest) }
+                }
 
                 MouseArea {
                   anchors.fill: parent
@@ -396,11 +406,19 @@ Item {
           x: Style.space(4)
           height: Style.space(24)
           radius: Style.cornerRadius
-          color: trashHover.hovered ? Util.alpha(Color.foreground, 0.08) : "transparent"
+          color: trashDrop.containsDrag ? Util.alpha(Color.urgent, 0.25)
+            : (trashHover.hovered ? Util.alpha(Color.foreground, 0.08) : "transparent")
           border.width: cursored ? Math.max(1, Style.space(1)) : 0
           border.color: Util.alpha(Color.accent, 0.9)
 
           HoverHandler { id: trashHover }
+
+          DropTarget {
+            id: trashDrop
+            anchors.fill: parent
+            target: "trash:"
+            onFilesDropped: function (urls, dest) { sidebar.dropRequested(urls, dest) }
+          }
 
           MouseArea {
             anchors.fill: parent

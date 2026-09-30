@@ -134,6 +134,32 @@ and pauses that job until the caller sends:
 filesystems. It never calls `os.rename` blindly across devices. Copy preserves mode and
 timestamps and uses `os.copy_file_range` with a `shutil.copyfileobj` fallback.
 
+A source that is the destination itself, such as a paste back into the same folder,
+never goes through `conflict`: `copy` writes a renamed copy beside it and `move` skips it.
+
+### clipset, clipget, clipclear
+
+```
+{"id": N, "op": "clipset", "mode": "copy", "paths": ["/a/x"]}
+{"id": N, "op": "clipget"}
+{"id": N, "op": "clipclear"}
+```
+
+The system clipboard, through `wl-copy` and `wl-paste`. `clipset` with `mode: "copy"`
+offers `text/uri-list`; `mode: "cut"` offers `x-special/gnome-copied-files`, which GNOME
+Files reads as a move. `clipget` replies `done` with `mode` (`copy` or `cut`) and `paths`,
+read from either type, and an empty `paths` when the clipboard holds no files.
+`clipclear` always replies `done`. A missing `wl-copy` or `wl-paste` is `EUNSUPPORTED`.
+
+### samedev
+
+```
+{"id": N, "op": "samedev", "path": "/a/x", "dest": "/b"}
+```
+
+Replies `done` with `same`, whether both are on one filesystem. A drop moves when they
+are and copies when they are not.
+
 ### trash, delete, restore
 
 ```
