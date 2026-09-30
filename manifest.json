@@ -30,9 +30,9 @@
       "sortBy": "name",
       "sortDirsFirst": true,
       "confirmDelete": true,
-      "confirmTrash": true,
+      "confirmTrash": false,
       "useTrash": true,
-      "defaultView": "list",
+      "defaultView": "grid",
       "viewScale": 1,
       "terminal": "",
       "editor": "",
@@ -84,7 +84,7 @@
         "key": "confirmTrash",
         "type": "boolean",
         "label": "Confirm before moving items to trash",
-        "defaultValue": true
+        "defaultValue": false
       },
       {
         "key": "useTrash",
@@ -96,7 +96,7 @@
         "key": "defaultView",
         "type": "string",
         "label": "Default view: list, compact, grid or gallery",
-        "defaultValue": "list"
+        "defaultValue": "grid"
       },
       {
         "key": "viewScale",
