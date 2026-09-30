@@ -549,6 +549,43 @@ class BookmarkTests(HelperTestCase):
         self.assertEqual(info["items"], [])
         self.assertTrue(os.path.isdir(info["dir"]))
 
+def load_helper_module():
+    loader = importlib.machinery.SourceFileLoader("omafile_helper_module", HELPER_PATH)
+    module = type(sys)("omafile_helper_module")
+    module.__file__ = HELPER_PATH
+    loader.exec_module(module)
+    return module
+
+class MountTargetTests(unittest.TestCase):
+    def setUp(self):
+        self.helper = load_helper_module()
+        self.tmp = tempfile.mkdtemp()
+        os.makedirs(os.path.join(self.tmp, "home", "menno"))
+        with open(os.path.join(self.tmp, "home", "menno", "notes.txt"), "w") as f:
+            f.write("x")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def fake_gio(self, local):
+        class Result:
+            returncode = 0
+            stdout = "type: directory\nuri: sftp://laptop/x\nlocal path: %s\nattributes:\n" % local
+            stderr = ""
+        self.helper.run_trusted = lambda name, args, **kw: Result()
+
+    def test_opens_the_folder_in_the_address(self):
+        self.fake_gio(os.path.join(self.tmp, "home", "menno"))
+        self.assertEqual(self.helper.gio_local_folder("ssh://laptop/home/menno"), os.path.join(self.tmp, "home", "menno"))
+
+    def test_an_address_to_a_file_opens_its_folder(self):
+        self.fake_gio(os.path.join(self.tmp, "home", "menno", "notes.txt"))
+        self.assertEqual(self.helper.gio_local_folder("ssh://laptop/home/menno/notes.txt"), os.path.join(self.tmp, "home", "menno"))
+
+    def test_unknown_paths_fall_back(self):
+        self.fake_gio(os.path.join(self.tmp, "missing"))
+        self.assertEqual(self.helper.gio_local_folder("ssh://laptop/missing"), "")
+
 class SymlinkTests(HelperTestCase):
     def test_symlink_kinds(self):
         target_dir = self.path("realdir")

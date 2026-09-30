@@ -46,6 +46,7 @@ Item {
   property int _bookmarkWatchId: 0
   property var hiddenDrives: []
   property var servers: []
+  property var serverSettings: ({})
   property var session: null
   property var pickRequest: null
   property bool filePicker: false
@@ -832,12 +833,21 @@ Item {
       password: password || "", anonymous: anonymous === true
     }, {
       onDone: function (m) {
-        root.rememberServer(uri)
+        root.rememberServer(uri, { user: String(user || ""), domain: String(domain || ""), anonymous: anonymous === true })
         root.refreshDrives()
         if (onDone) onDone(m)
       },
       onError: onError
     })
+  }
+
+  function settingsForServer(uri) {
+    var saved = serverSettings[String(uri || "")]
+    return saved ? saved : ({ user: "", domain: "", anonymous: false })
+  }
+
+  function isRememberedServer(uri) {
+    return servers.indexOf(String(uri || "")) >= 0
   }
 
   function disconnectServer(path, onDone, onError) {
@@ -887,17 +897,21 @@ Item {
   function networkMounts() {
     var out = []
     for (var i = 0; i < drives.length; i++)
-      if (drives[i] && drives[i].gvfs === true) out.push(drives[i])
+      if (drives[i] && drives[i].network === true) out.push(drives[i])
     return out
   }
 
-  function rememberServer(uri) {
+  function rememberServer(uri, settings) {
     var value = String(uri || "").trim()
     if (!value) return
     var next = [value]
     for (var i = 0; i < servers.length && next.length < 10; i++)
       if (servers[i] !== value) next.push(servers[i])
     servers = next
+    var saved = {}
+    for (var k in serverSettings) if (next.indexOf(k) >= 0) saved[k] = serverSettings[k]
+    if (settings) saved[value] = settings
+    serverSettings = saved
     persist()
   }
 
@@ -906,6 +920,9 @@ Item {
     for (var i = 0; i < servers.length; i++)
       if (String(servers[i]) !== String(uri)) next.push(servers[i])
     servers = next
+    var saved = {}
+    for (var k in serverSettings) if (k !== String(uri)) saved[k] = serverSettings[k]
+    serverSettings = saved
     persist()
   }
 
@@ -1217,6 +1234,7 @@ Item {
       bookmarksDirty: bookmarksDirty,
       hiddenDrives: hiddenDrives,
       servers: servers,
+      serverSettings: serverSettings,
       previousFileManager: previousFileManager,
       session: session
     }
@@ -1249,6 +1267,7 @@ Item {
     }
     if (parsed.hiddenDrives) hiddenDrives = parsed.hiddenDrives
     if (parsed.servers) servers = parsed.servers
+    if (parsed.serverSettings && typeof parsed.serverSettings === "object") serverSettings = parsed.serverSettings
     if (parsed.previousFileManager) previousFileManager = String(parsed.previousFileManager)
     if (parsed.session) session = parsed.session
   }

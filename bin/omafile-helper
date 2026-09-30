@@ -1800,6 +1800,15 @@ def unquote_path(value):
         return value
 
 
+def gvfs_fields(name):
+    fields = {}
+    if ":" in name:
+        for part in name.split(":", 1)[1].split(","):
+            if "=" in part:
+                key, value = part.split("=", 1)
+                fields[key] = unquote_path(value)
+    return fields
+
 def gvfs_label(name):
     scheme = name.split("-")[0] if "-" in name else name
     fields = {}
@@ -1968,6 +1977,7 @@ def gvfs_mounts():
         name = to_str(raw)
         target = os.path.join(GVFS_ROOT, name)
         label, scheme = gvfs_label(name)
+        fields = gvfs_fields(name)
         free = None
         total = None
         try:
@@ -1980,6 +1990,8 @@ def gvfs_mounts():
             "name": label, "path": target, "label": label, "size": total,
             "fstype": scheme, "mount": target, "removable": False,
             "network": True, "gvfs": True, "free": free, "total": total,
+            "host": fields.get("host") or fields.get("server") or "", "user": fields.get("user") or "",
+            "port": fields.get("port") or "",
         })
     return out
 
@@ -2239,6 +2251,23 @@ def op_netmounts(req):
     send_done(req["id"])
 
 
+def gio_local_folder(uri):
+    try:
+        proc = run_trusted("gio", ["info", "-a", "standard::type", uri], timeout=15)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    for line in (proc.stdout or "").splitlines():
+        if line.startswith("local path:"):
+            local = line.split(":", 1)[1].strip()
+            local_bytes = to_bytes(local)
+            if os.path.isdir(local_bytes):
+                return local
+            if os.path.exists(local_bytes):
+                return to_str(os.path.dirname(local_bytes))
+    return ""
+
 def op_mounturi(req, cancel_event):
     req_id = req["id"]
     uri = req.get("uri")
@@ -2269,12 +2298,12 @@ def op_mounturi(req, cancel_event):
     if proc.returncode != 0 and not fresh:
         if "already mounted" in message.lower():
             match = [m for m in after if uri.rstrip("/").endswith(m["label"].split(" on ")[0])]
-            emit({"id": req_id, "t": "done", "path": match[0]["mount"] if match else "",
-                  "mounts": after, "message": "already connected"})
+            target = gio_local_folder(uri) or (match[0]["mount"] if match else "")
+            emit({"id": req_id, "t": "done", "path": target, "mounts": after, "message": "already connected"})
             return
         send_error(req_id, "EMOUNT", message or "could not connect")
         return
-    target = fresh[0]["mount"] if fresh else ""
+    target = gio_local_folder(uri) or (fresh[0]["mount"] if fresh else "")
     emit({"id": req_id, "t": "done", "path": target, "mounts": after, "message": message})
 
 

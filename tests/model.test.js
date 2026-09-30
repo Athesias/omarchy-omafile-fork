@@ -547,3 +547,14 @@ test('selection summary shows the size of the selected files', function () {
 test('bookmark drops decode only unique local file URLs', function () {
   assert.deepEqual(Array.from(Model.localPathsFromUrls(['file:///tmp/a%20b', 'file://localhost/tmp/c', 'file://remote/tmp/d', 'https://example.com', 'file:///tmp/a%20b', 'file:///bad%E0%A4%A'])), ['/tmp/a b', '/tmp/c']);
 });
+
+test('server addresses collapse to one entry per user and host', function () {
+  assert.equal(Model.serverKeyOf('ssh://laptop'), 'laptop');
+  assert.equal(Model.serverKeyOf('ssh://laptop/'), 'laptop');
+  assert.equal(Model.serverKeyOf('sftp://Laptop/home/menno/'), 'laptop');
+  assert.equal(Model.serverKeyOf('ssh://menno@laptop:2222/x'), 'menno@laptop:2222');
+  assert.equal(Model.serverKey('', 'LAPTOP', ''), 'laptop');
+  assert.equal(Model.serverLabel('ssh://laptop/home/menno/'), 'laptop');
+  assert.equal(Model.serverLabel('smb://me@nas/media'), 'me@nas');
+  assert.equal(Model.serverLabel('not a uri'), 'not a uri');
+});

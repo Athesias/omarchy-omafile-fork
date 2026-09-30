@@ -361,7 +361,90 @@ ShellRoot {
         compare(mock.called("renameBookmark").args[1], "Project docs")
         compare(browser.dialogMode, "")
 
+        var server = { key: "networkdrive", label: "laptop", path: "", uri: "ssh://laptop", server: true, remembered: true }
+        verify(menuLabels(browser.placeMenuActions(server)).indexOf("Forget this server") >= 0)
+        mock.servers = ["ssh://laptop/home/menno/", "ssh://nas", "ssh://laptop/"]
+        mock.calls = []
+        browser.runPlaceAction("forget", server)
+        compare(count("forgetServer"), 2, "every saved address for that server is forgotten")
+        compare(mock.calls.filter(function (c) { return c.name === "forgetServer" }).map(function (c) { return c.args[0] }),
+          ["ssh://laptop/home/menno/", "ssh://laptop/"])
+        mock.servers = []
         mock.pinned = []
+      }
+
+      function networkRows() {
+        var side = findChild(browser, "sidebar")
+        var sections = side.sections()
+        var out = { drives: [], network: [] }
+        for (var i = 0; i < sections.length; i++) {
+          if (sections[i].title === "Drives") out.drives = sections[i].rows
+          if (sections[i].title === "Network") out.network = sections[i].rows.filter(function (r) { return r.connect !== true })
+        }
+        return out
+      }
+
+      function test_3k_networkEntries() {
+        mock.servers = ["ssh://laptop/home/menno/", "ssh://laptop", "ssh://laptop/"]
+        var rows = networkRows()
+        compare(rows.network.length, 1, "three saved addresses are one server")
+        compare(rows.network[0].label, "laptop")
+        compare(rows.network[0].connected, false)
+        compare(rows.network[0].uri, "ssh://laptop/home/menno/", "connects to the most recent address")
+
+        mock.drives = [{ name: "laptop", label: "laptop", path: "/run/user/1000/gvfs/sftp:host=laptop",
+          mount: "/run/user/1000/gvfs/sftp:host=laptop", network: true, gvfs: true, host: "laptop", user: "", port: "",
+          free: 10, total: 20, fstype: "sftp", removable: false }]
+        rows = networkRows()
+        compare(rows.drives.length, 0, "a connected share is not listed under Drives")
+        compare(rows.network.length, 1, "and is not listed twice under Network")
+        compare(rows.network[0].label, "laptop")
+        compare(rows.network[0].connected, true)
+        verify(menuLabels(browser.placeMenuActions(rows.network[0])).indexOf("Disconnect") >= 0)
+        verify(menuLabels(browser.placeMenuActions(rows.network[0])).indexOf("Forget this server") >= 0)
+        mock.drives = []
+        mock.servers = []
+      }
+
+      function test_3l_quickConnect() {
+        mock.servers = ["ssh://laptop/home/menno/"]
+        mock.serverSettings = { "ssh://laptop/home/menno/": { user: "menno", domain: "", anonymous: false } }
+        mock.connectResult = { path: "/tmp/docs" }
+        mock.calls = []
+        browser.openServer("ssh://laptop/home/menno/")
+        var call = mock.called("connectToServer")
+        compare(call.args[0], "ssh://laptop/home/menno/")
+        compare(call.args[1], "menno", "saved user name is reused")
+        compare(call.args[3], "", "no password is stored or sent")
+        compare(browser.dialogMode, "", "a saved server connects without the dialog")
+        compare(pane().path, "/tmp/docs")
+        pane().navigate("/tmp")
+        waitRows()
+
+        mock.connectResult = { error: "Permission denied" }
+        browser.openServer("ssh://laptop/home/menno/")
+        compare(browser.dialogMode, "connect", "a failed quick connect asks for details")
+        var user = findChild(browser, "userField")
+        tryCompare(user, "text", "menno")
+        compare(browser.connectFailed, true)
+        verify(browser.connectStatus.indexOf("Permission denied") === 0, browser.connectStatus)
+        browser.closeDialog()
+
+        mock.calls = []
+        browser.openServer("smb://nas/media")
+        compare(browser.dialogMode, "connect", "unknown servers open the dialog")
+        compare(mock.called("connectToServer"), null)
+        browser.closeDialog()
+
+        var row = { key: "networkdrive", label: "laptop", path: "", uri: "ssh://laptop/home/menno/", server: true, remembered: true }
+        verify(menuLabels(browser.placeMenuActions(row)).indexOf("Edit\u2026") >= 0)
+        browser.runPlaceAction("editserver", row)
+        compare(browser.dialogMode, "connect")
+        tryCompare(findChild(browser, "serverField"), "text", "ssh://laptop/home/menno/")
+        browser.closeDialog()
+        mock.servers = []
+        mock.serverSettings = ({})
+        mock.connectResult = null
       }
 
       function test_4_mouseBackForward() {

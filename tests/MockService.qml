@@ -89,6 +89,16 @@ QtObject {
   function addBookmarks(paths) { record("addBookmarks", [paths]); pinned = pinned.concat(paths); return paths.length }
   function renameBookmark(path, label) { record("renameBookmark", [path, label]) }
   function forgetServer(uri) { record("forgetServer", [uri]) }
+  property var serverSettings: ({})
+  property var connectResult: null
+  function settingsForServer(uri) { return serverSettings[uri] || { user: "", domain: "", anonymous: false } }
+  function isRememberedServer(uri) { return servers.indexOf(uri) >= 0 }
+  function connectToServer(uri, user, domain, password, anonymous, onDone, onError) {
+    record("connectToServer", [uri, user, domain, password, anonymous])
+    if (connectResult && connectResult.error) onError({ message: connectResult.error })
+    else onDone({ path: connectResult ? connectResult.path : "" })
+    return 0
+  }
   function disconnectServer(path, onDone, onError) { record("disconnectServer", [path]) }
   function copyToClipboardText(text) { record("copyToClipboardText", [text]) }
   function emptyTrash(onDone) { record("emptyTrash", []); trashCount = 0; if (onDone) onDone({}) }

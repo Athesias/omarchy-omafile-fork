@@ -347,6 +347,27 @@ function isAncestor(ancestorPath, path) {
   return p.indexOf(a + '/') === 0;
 }
 
+function parseServerUri(uri) {
+  var m = /^([a-z][a-z0-9+.-]*):\/\/(?:([^@\/]*)@)?(\[[^\]]+\]|[^:\/?#]*)(?::(\d+))?(\/[^?#]*)?/i.exec(String(uri || '').trim());
+  if (!m) return null;
+  return { scheme: m[1].toLowerCase(), user: m[2] || '', host: (m[3] || '').toLowerCase(), port: m[4] || '', path: m[5] || '' };
+}
+
+function serverKey(user, host, port) {
+  return (user ? user + '@' : '') + String(host || '').toLowerCase() + (port ? ':' + port : '');
+}
+
+function serverKeyOf(uri) {
+  var p = parseServerUri(uri);
+  return p ? serverKey(p.user, p.host, p.port) : String(uri || '');
+}
+
+function serverLabel(uri) {
+  var p = parseServerUri(uri);
+  if (!p || !p.host) return String(uri || '');
+  return (p.user ? p.user + '@' : '') + p.host;
+}
+
 function fileUrlToPath(url) {
   var s = String(url || '');
   if (s.indexOf('file://') !== 0) return '';
