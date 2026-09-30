@@ -274,15 +274,18 @@ Panel {
 
       PanelSectionHeader {
         width: parent.width
-        visible: root.service !== null && root.service.transfers.length > 0
+        visible: root.service !== null && root.service.runningTransfers.length > 0
         text: "Transfers"
       }
 
       Repeater {
-        model: root.service ? root.service.transfers : []
+        model: root.service ? root.service.runningTransferIds : []
 
         delegate: Column {
+          id: transferRow
           required property var modelData
+          readonly property var item: root.service && root.service.transferIndex[modelData]
+            ? root.service.transferIndex[modelData] : ({ id: modelData, label: "", state: "done", bytes: 0, total: 0 })
           width: column.width
           spacing: Style.space(2)
 
@@ -293,7 +296,7 @@ Panel {
             Text {
               anchors.verticalCenter: parent.verticalCenter
               width: parent.width - Style.space(30)
-              text: modelData.label
+              text: transferRow.item.label
               color: Color.popups.text
               font.family: Style.font.family
               font.pixelSize: Style.font.bodySmall
@@ -302,7 +305,7 @@ Panel {
 
             Text {
               anchors.verticalCenter: parent.verticalCenter
-              visible: modelData.state === "running" || modelData.state === "paused"
+              visible: transferRow.item.state === "running" || transferRow.item.state === "paused"
               text: Icons.actionGlyph("cancel")
               color: transferCancelHover.hovered ? Color.urgent : Util.alpha(Color.popups.text, 0.5)
               font.family: Style.font.family
@@ -313,7 +316,7 @@ Panel {
               MouseArea {
                 anchors.fill: parent
                 onClicked: {
-                  if (root.service) root.service.cancelTransfer(modelData.id)
+                  if (root.service) root.service.cancelTransfer(transferRow.item.id)
                 }
               }
             }
@@ -326,11 +329,11 @@ Panel {
             color: Util.alpha(Color.popups.text, 0.15)
 
             Rectangle {
-              width: parent.width * (modelData.total > 0
-                ? Math.max(0, Math.min(1, modelData.bytes / modelData.total)) : 0)
+              width: parent.width * (transferRow.item.total > 0
+                ? Math.max(0, Math.min(1, transferRow.item.bytes / transferRow.item.total)) : 0)
               height: parent.height
               radius: parent.radius
-              color: modelData.state === "failed" ? Color.urgent : Color.accent
+              color: transferRow.item.state === "failed" ? Color.urgent : Color.accent
             }
           }
         }

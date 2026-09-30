@@ -209,6 +209,65 @@ ShellRoot {
         waitRows()
       }
 
+      function transfer(id, state) {
+        return { id: id, op: "copy", label: "clip.mp4", dest: "/home/me/Videos", from: "/home/me/Downloads",
+          state: state, bytes: state === "done" ? 10 : 4, total: 10, files: 1, filesTotal: 2, current: "/home/me/Downloads/clip.mp4",
+          rate: 2, errors: [], startedMs: Date.now() - 1000, finishedMs: state === "done" ? Date.now() : 0, count: 1 }
+      }
+
+      function test_3g_transfersAndStatus() {
+        var panel = findChild(browser, "transferPanel")
+        var chip = findChild(browser, "transferChip")
+        browser.statusText = "Moving 3 items to Test"
+        mock.transfers = [transfer(1, "running")]
+        wait(200)
+        mock.transfers = [transfer(1, "done")]
+        wait(1100)
+        verify(!panel.visible, "a quick transfer never pops the panel up")
+        verify(chip.visible, "finished transfers stay reachable from the status bar")
+
+        mock.transfers = [transfer(1, "done"), transfer(2, "running")]
+        tryVerify(function () { return panel.visible }, 2000, "a slow transfer opens the panel")
+        compare(browser.transfersAutoOpened, true)
+        var row = findChild(panel, "transfer-2")
+        verify(row !== null)
+        compare(row.open, false)
+        mouseClick(row, 40, 8)
+        compare(row.open, true, "clicking a transfer shows its details")
+        var moved = transfer(2, "running")
+        moved.bytes = 7
+        mock.transfers = [transfer(1, "done"), moved]
+        wait(50)
+        verify(findChild(panel, "transfer-2") === row, "progress updates keep the same row")
+        compare(row.open, true, "and keep it expanded")
+        compare(row.item.bytes, 7)
+        mouseClick(findChild(row, "cancelTransfer"))
+        compare(mock.called("cancelTransfer").args[0], 2, "the stop button works mid transfer")
+
+        mouseClick(findChild(panel, "minimizeTransfers"))
+        verify(!panel.visible, "minimize hides the panel")
+        mock.transfers = [transfer(1, "done"), transfer(2, "running"), transfer(3, "running")]
+        wait(1100)
+        verify(!panel.visible, "stays minimized while more work runs")
+        mouseClick(chip)
+        verify(panel.visible, "the status bar chip reopens it")
+
+        mouseClick(findChild(panel, "clearCompleted"))
+        verify(mock.called("clearFinishedTransfers") !== null)
+        compare(mock.transfers.length, 2)
+        mock.transfers = [transfer(2, "done")]
+        wait(100)
+        verify(panel.visible, "a panel the user opened stays open when work finishes")
+        var doneRow = null
+        tryVerify(function () { doneRow = findChild(panel, "transfer-2"); return doneRow !== null && doneRow.live === false }, 2000)
+        mouseClick(findChild(doneRow, "clearTransfer"))
+        compare(mock.called("clearTransfer").args[0], 2)
+        verify(!panel.visible && !chip.visible, "nothing left, nothing shown")
+        browser.transfersMinimized = false
+
+        tryVerify(function () { return browser.statusText === "" }, 5000, "status messages fade out")
+      }
+
       function test_4_mouseBackForward() {
         waitRows()
         pane().navigate("/tmp/docs")

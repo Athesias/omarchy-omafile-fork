@@ -45,6 +45,28 @@ Item {
   signal conflictRaised(int jobId, var info)
 
   readonly property int activeTransfers: countActive()
+  readonly property int finishedTransfers: transfers.length - activeTransfers
+  readonly property var runningTransfers: transfers.filter(function (t) { return root.transferActive(t) })
+  readonly property var transferIndex: indexTransfers(transfers)
+  property var runningTransferIds: []
+
+  onTransfersChanged: {
+    var next = []
+    for (var i = 0; i < transfers.length; i++) if (transferActive(transfers[i])) next.push(transfers[i].id)
+    var same = next.length === runningTransferIds.length
+      && next.every(function (id, n) { return id === root.runningTransferIds[n] })
+    if (!same) runningTransferIds = next
+  }
+
+  function indexTransfers(list) {
+    var out = {}
+    for (var i = 0; i < list.length; i++) out[list[i].id] = list[i]
+    return out
+  }
+
+  function transferActive(t) {
+    return t.state === "running" || t.state === "paused"
+  }
   readonly property real transferFraction: aggregateFraction()
 
   function countActive() {
@@ -453,7 +475,8 @@ Item {
     var record = {
       id: 0, op: op, label: label, dest: dest, state: "running",
       bytes: 0, total: 0, files: 0, filesTotal: 0, current: "", rate: 0,
-      errors: [], startedMs: Date.now()
+      errors: [], startedMs: Date.now(), finishedMs: 0, count: sources.length,
+      from: sources.length > 0 ? Model.dirname(sources[0]) : ""
     }
     var id = request({ op: op, sources: sources, dest: dest, conflict: conflict || "ask" }, {
       onData: function (m) {
@@ -481,12 +504,12 @@ Item {
             label: (op === "move" ? "Move " : "Copy ") + Model.formatCount(sources.length, "item", "items")
           })
         }
-        scheduleTransferSweep()
+        trimTransferHistory()
         refreshTrash()
       },
       onError: function (m) {
         updateTransfer(m.id, { state: m.code === "ECANCELED" ? "cancelled" : "failed", message: String(m.message || "") })
-        scheduleTransferSweep()
+        trimTransferHistory()
       }
     })
     record.id = id
@@ -510,6 +533,7 @@ Item {
         var merged = {}
         for (var k in t) merged[k] = t[k]
         for (var p in patch) merged[p] = patch[p]
+        if (!transferActive(merged) && !merged.finishedMs) merged.finishedMs = Date.now()
         next.push(merged)
         touched = true
       } else next.push(t)
@@ -524,16 +548,39 @@ Item {
   }
 
   function clearFinishedTransfers() {
-    var next = []
-    for (var i = 0; i < transfers.length; i++) {
-      var s = transfers[i].state
-      if (s === "running" || s === "paused") next.push(transfers[i])
-    }
-    transfers = next
+    transfers = transfers.filter(function (t) { return root.transferActive(t) })
   }
 
-  function scheduleTransferSweep() {
-    sweepTimer.restart()
+  function clearTransfer(id) {
+    transfers = transfers.filter(function (t) { return Number(t.id) !== Number(id) || root.transferActive(t) })
+  }
+
+  function markTransfersSeen() {
+    var changed = false
+    var next = transfers.map(function (t) {
+      if (root.transferActive(t) || t.seen) return t
+      changed = true
+      var copy = {}
+      for (var k in t) copy[k] = t[k]
+      copy.seen = true
+      return copy
+    })
+    if (changed) transfers = next
+  }
+
+  function trimTransferHistory() {
+    seenTimer.restart()
+    var finished = 0
+    for (var i = transfers.length - 1; i >= 0; i--) if (!transferActive(transfers[i])) finished++
+    if (finished <= 50) return
+    var drop = finished - 50
+    transfers = transfers.filter(function (t) {
+      if (drop > 0 && !root.transferActive(t)) {
+        drop--
+        return false
+      }
+      return true
+    })
   }
 
   function recordUndo(entry) {
@@ -1128,11 +1175,11 @@ Item {
     onTriggered: root.persist()
   }
 
-  property Timer sweepTimer: Timer {
-    id: sweepTimer
+  property Timer seenTimer: Timer {
+    id: seenTimer
     interval: 6000
     repeat: false
-    onTriggered: root.clearFinishedTransfers()
+    onTriggered: root.markTransfersSeen()
   }
 
   property Timer drivesTimer: Timer {

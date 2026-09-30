@@ -94,7 +94,7 @@ BarWidget {
     if (!service) return false
     var list = service.transfers
     for (var i = 0; i < list.length; i++)
-      if (list[i].state === "failed") return true
+      if (list[i].state === "failed" && !list[i].seen) return true
     return false
   }
 

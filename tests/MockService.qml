@@ -9,6 +9,16 @@ QtObject {
   property var clipboard: ({ mode: "", paths: [] })
   property var cutPaths: ({})
   property var transfers: []
+  readonly property int activeTransfers: transfers.filter(function (t) { return t.state === "running" || t.state === "paused" }).length
+  readonly property int finishedTransfers: transfers.length - activeTransfers
+  readonly property real transferFraction: 0.5
+  readonly property string home: "/home/me"
+  function clearFinishedTransfers() {
+    record("clearFinishedTransfers", [])
+    transfers = transfers.filter(function (t) { return t.state === "running" || t.state === "paused" })
+  }
+  function clearTransfer(id) { record("clearTransfer", [id]); transfers = transfers.filter(function (t) { return t.id !== id }) }
+  function cancelTransfer(id) { record("cancelTransfer", [id]) }
   property string helperError: ""
   property string windowMode: "window"
   property bool trashIcon: false

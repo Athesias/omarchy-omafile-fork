@@ -42,6 +42,57 @@ Item {
   property var menuEntry: null
   property string menuKind: ""
   property string statusText: ""
+  property bool transfersOpen: false
+  property bool transfersMinimized: false
+  property bool transfersAutoOpened: false
+  readonly property int transferCount: service && service.transfers ? service.transfers.length : 0
+  readonly property int runningTransfers: service ? Number(service.activeTransfers) || 0 : 0
+
+  onStatusTextChanged: if (statusText !== "") statusTimer.restart()
+  onRunningTransfersChanged: {
+    if (runningTransfers > 0) {
+      transfersCloseTimer.stop()
+      if (!transfersPopTimer.running && !transfersOpen) transfersPopTimer.start()
+    } else if (transfersAutoOpened) {
+      transfersCloseTimer.restart()
+    }
+  }
+  onTransferCountChanged: if (transferCount === 0) transfersOpen = false
+
+  function showTransfers(open) {
+    transfersOpen = open && transferCount > 0
+    transfersAutoOpened = false
+    transfersMinimized = !open
+    transfersCloseTimer.stop()
+  }
+
+  Timer {
+    id: statusTimer
+    interval: 4000
+    onTriggered: root.statusText = ""
+  }
+
+  Timer {
+    id: transfersPopTimer
+    interval: 900
+    onTriggered: {
+      if (root.runningTransfers > 0 && !root.transfersMinimized && !root.transfersOpen) {
+        root.transfersOpen = true
+        root.transfersAutoOpened = true
+      }
+    }
+  }
+
+  Timer {
+    id: transfersCloseTimer
+    interval: 4000
+    onTriggered: {
+      if (root.runningTransfers === 0 && root.transfersAutoOpened) {
+        root.transfersOpen = false
+        root.transfersAutoOpened = false
+      }
+    }
+  }
   property string appFilter: ""
   readonly property bool canRunTyped: dialogMode === "openwith"
     && Model.tokenizeCommand(appFilter).length > 0
@@ -1880,7 +1931,77 @@ Item {
           }
         }
 
+        Rectangle {
+          id: transferChip
+          objectName: "transferChip"
+          anchors.right: helperErrorText.visible ? helperErrorText.left : parent.right
+          anchors.rightMargin: Style.space(8)
+          anchors.verticalCenter: parent.verticalCenter
+          visible: root.transferCount > 0
+          width: chipRow.implicitWidth + Style.space(14)
+          height: Style.space(18)
+          radius: Style.cornerRadius
+          color: root.transfersOpen ? Util.alpha(Color.accent, 0.2)
+            : (chipHover.hovered ? Util.alpha(Color.foreground, 0.1) : "transparent")
+
+          HoverHandler { id: chipHover }
+
+          MouseArea {
+            anchors.fill: parent
+            onClicked: root.showTransfers(!root.transfersOpen)
+          }
+
+          Row {
+            id: chipRow
+            anchors.centerIn: parent
+            spacing: Style.space(6)
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: Icons.actionGlyph(root.runningTransfers > 0 ? "copy" : "check")
+              color: root.runningTransfers > 0 ? Color.accent : Util.alpha(Color.foreground, 0.55)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+
+            Rectangle {
+              anchors.verticalCenter: parent.verticalCenter
+              visible: root.runningTransfers > 0
+              width: Style.space(48)
+              height: Style.space(4)
+              radius: height / 2
+              color: Util.alpha(Color.foreground, 0.15)
+
+              Rectangle {
+                width: parent.width * (root.service ? root.service.transferFraction : 0)
+                height: parent.height
+                radius: parent.radius
+                color: Color.accent
+              }
+            }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.runningTransfers > 0
+                ? Model.formatCount(root.runningTransfers, "transfer", "transfers")
+                : Model.formatCount(root.transferCount, "transfer done", "transfers done")
+              color: Util.alpha(Color.foreground, 0.6)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: Icons.actionGlyph(root.transfersOpen ? "chevronDown" : "chevronUp")
+              color: Util.alpha(Color.foreground, 0.45)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+          }
+        }
+
         Text {
+          id: helperErrorText
           anchors.right: parent.right
           anchors.rightMargin: Style.space(10)
           anchors.verticalCenter: parent.verticalCenter
@@ -1895,12 +2016,14 @@ Item {
     }
 
     TransferBar {
+      objectName: "transferPanel"
       anchors.bottom: parent.bottom
       anchors.bottomMargin: Style.space(28)
       anchors.right: parent.right
       anchors.rightMargin: Style.space(12)
       service: root.service
-      visible: root.service !== null && root.service.transfers.length > 0
+      visible: root.transfersOpen && root.transferCount > 0
+      onMinimizeRequested: root.showTransfers(false)
     }
 
     MouseArea {
