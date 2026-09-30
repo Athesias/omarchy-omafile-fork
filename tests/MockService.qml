@@ -55,6 +55,7 @@ QtObject {
   function openExternally(path) { record("openExternally", [path]) }
   function finishPick(result) { record("finishPick", [result]); pickRequest = null }
   property var undoStack: []
+  property var cutSet: ({})
   property var starred: []
   property var systemClipboard: null
   function beginTransfer(op, paths, dest, conflict) { record("beginTransfer", [op, paths, dest, conflict]) }

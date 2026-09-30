@@ -654,6 +654,11 @@ Item {
   }
 
   // Middle click, as in Nautilus: a folder opens in a new tab, a file opens
+  // Cut and not pasted yet; the service follows the system clipboard
+  function isCut(entry) {
+    return !!(entry && service && service.cutSet && service.cutSet[entry.path] === true)
+  }
+
   function middleOpen(entry) {
     if (!entry) return
     if (entry.isDir && !entry.isBroken) pane.newTabRequested(entry.path)
@@ -954,6 +959,7 @@ Item {
           required property int index
 
           readonly property var entry: Model.decodeEntry(modelData, pane.path)
+          readonly property bool cut: pane.isCut(entry)
 
           width: listView.width
           height: pane.rowHeight
@@ -980,6 +986,13 @@ Item {
             color: "transparent"
             border.width: pane.cursorIndex === index && pane.active ? 1 : 0
             border.color: Util.alpha(pane.accent, 0.8)
+          }
+
+          CutOutline {
+            anchors.fill: parent
+            visible: row.cut
+            color: Util.alpha(pane.accent, 0.85)
+            radius: Style.cornerRadius
           }
 
           HoverHandler { id: rowHover }
@@ -1015,6 +1028,7 @@ Item {
           Row {
             anchors.fill: parent
             spacing: 0
+            opacity: row.cut ? 0.45 : 1
 
             Item {
               width: header.width * pane.colWeight("name")
@@ -1139,6 +1153,7 @@ Item {
           required property int index
 
           readonly property var entry: Model.decodeEntry(modelData, pane.path)
+          readonly property bool cut: pane.isCut(entry)
 
           width: gridView.cellWidth - (pane.compactView ? Style.space(4) : 0)
           height: gridView.cellHeight
@@ -1149,6 +1164,13 @@ Item {
             : (cellHover.hovered ? Util.alpha(pane.fg, Style.hoverFillAlpha) : "transparent")
           border.width: pane.cursorIndex === index && pane.active ? 1 : 0
           border.color: Util.alpha(pane.accent, 0.8)
+
+          CutOutline {
+            anchors.fill: parent
+            visible: cell.cut
+            color: Util.alpha(pane.accent, 0.85)
+            radius: Style.cornerRadius
+          }
 
           HoverHandler { id: cellHover }
 
@@ -1199,6 +1221,7 @@ Item {
             anchors.rightMargin: Style.space(8)
             spacing: Style.space(8)
             visible: pane.compactView
+            opacity: cell.cut ? 0.45 : 1
 
             Item {
               anchors.verticalCenter: parent.verticalCenter
@@ -1249,6 +1272,7 @@ Item {
             width: parent.width - Style.space(12)
             spacing: pane.view === "gallery" ? Style.space(6) : 6
             visible: !pane.compactView
+            opacity: cell.cut ? 0.45 : 1
 
             Item {
               anchors.horizontalCenter: parent.horizontalCenter

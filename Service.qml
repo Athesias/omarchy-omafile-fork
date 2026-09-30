@@ -28,6 +28,11 @@ Item {
 
   property var transfers: []
   property var clipboard: ({ mode: "", paths: [] })
+  // Paths waiting on a paste after Cut, from Omafile or any other app. Follows
+  // the system clipboard, so copying something else clears it, as in Nautilus.
+  property var cutSet: ({})
+  // The watcher reads the clipboard through the helper, so it starts with it
+  onHelperReadyChanged: if (helperReady && !clipboardWatch.running) clipboardWatch.running = true
   property var drives: []
   property var userDirs: ({})
   property int trashCount: 0
@@ -330,12 +335,31 @@ Item {
 
   function setClipboard(mode, paths) {
     clipboard = { mode: mode, paths: paths.slice() }
+    applyCutPaths(mode, paths)
     // Also on the system clipboard, so other apps can paste the files
     request({ op: "clipset", mode: mode, paths: paths.slice() }, null)
   }
 
   function clearClipboard() {
     clipboard = { mode: "", paths: [] }
+    cutSet = ({})
+  }
+
+  function applyCutPaths(mode, paths) {
+    var next = {}
+    if (mode === "cut")
+      for (var i = 0; i < paths.length; i++) next[String(paths[i])] = true
+    cutSet = next
+  }
+
+  function isCut(path) {
+    return cutSet[String(path)] === true
+  }
+
+  function syncCutFromSystem() {
+    readSystemClipboard(function (sys) {
+      if (sys) root.applyCutPaths(sys.mode, sys.paths)
+    })
   }
 
   function beginTransfer(op, sources, dest, conflict) {
@@ -1125,6 +1149,31 @@ Item {
         if (text) root.helperError = text
       }
     }
+  }
+
+  // wl-paste prints a line whenever the clipboard changes (and once at start)
+  property Process clipboardWatch: Process {
+    id: clipboardWatch
+    command: ["wl-paste", "--watch", "echo", "changed"]
+    running: false
+    stdout: SplitParser {
+      splitMarker: "\n"
+      onRead: clipboardSync.restart()
+    }
+    onExited: clipboardRetry.restart()
+  }
+
+  property Timer clipboardSync: Timer {
+    id: clipboardSync
+    interval: 120
+    onTriggered: root.syncCutFromSystem()
+  }
+
+  // Start the watcher again if it dies (compositor restart, missing wl-paste)
+  property Timer clipboardRetry: Timer {
+    id: clipboardRetry
+    interval: 5000
+    onTriggered: if (root.helperReady && !clipboardWatch.running) clipboardWatch.running = true
   }
 
   property Process portalStatus: Process {

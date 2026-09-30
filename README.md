@@ -79,6 +79,8 @@ Right click the address bar for the same menus Nautilus has there: a parent fold
 
 Move to… and Copy to… in the right click menu turn the window into a folder chooser. Go to the destination, then press Select or Enter. Escape cancels. Extract to… works the same way for archives. Paste into folder pastes into the folder you right clicked, and Paste as link (Ctrl+M) makes links to whatever is on the clipboard.
 
+Cut items fade and get a dashed outline until they are pasted, as in Nautilus. The marking follows the system clipboard, so files cut in Nautilus show up faded here too, and copying anything else clears it.
+
 Delete moves items to the trash straight away, as in Nautilus, and the status bar offers Undo. Turn on Confirm moves to trash in Settings if you would rather be asked.
 
 ### Sorting

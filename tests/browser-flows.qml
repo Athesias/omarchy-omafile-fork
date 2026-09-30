@@ -304,6 +304,17 @@ ShellRoot {
         waitRows()
       }
 
+      function test_9g_cutMarker() {
+        waitRows()
+        var alpha = entryNamed("alpha.yml")
+        verify(!pane().isCut(alpha))
+        mock.cutSet = { "/tmp/alpha.yml": true }
+        verify(pane().isCut(alpha), "cut item is marked")
+        verify(!pane().isCut(entryNamed("beta.png")))
+        mock.cutSet = ({})
+        verify(!pane().isCut(alpha), "marker clears with the clipboard")
+      }
+
       function test_zz_done() {
         console.log("OMAFILE_BROWSER_FLOWS_RAN " + ran)
         if (failures > 0) return
