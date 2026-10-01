@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORTAL_PATH = os.path.join(ROOT, "bin", "omafile-portal")
@@ -281,6 +282,39 @@ class SetupCommandTests(unittest.TestCase):
             result = self.run_setup(home, "bogus")
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("usage", result.stderr)
+
+
+class SystemFileTests(unittest.TestCase):
+    def install(self, root, body):
+        fake = os.path.join(root, "bin")
+        os.makedirs(fake)
+        log = os.path.join(root, "argv")
+        pkexec = os.path.join(fake, "pkexec")
+        with open(pkexec, "w", encoding="utf-8") as f:
+            f.write("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + log + "\"\n" + body)
+        os.chmod(pkexec, 0o755)
+        target = os.path.join(root, "share", "portals", "omafile.portal")
+        env = dict(os.environ)
+        env["PATH"] = fake + os.pathsep + env.get("PATH", "")
+        env.pop("OMAFILE_PORTAL_SKIP_SYSTEM", None)
+        with mock.patch.object(setup, "SYSTEM_PORTAL", target), \
+                mock.patch.dict(os.environ, env, clear=True):
+            setup.install_system_file()
+        with open(log, encoding="utf-8") as f:
+            return target, f.read().splitlines()
+
+    def test_body_reaches_root_over_stdin(self):
+        with tempfile.TemporaryDirectory() as root:
+            target, argv = self.install(root, "exec \"$@\"\n")
+            self.assertEqual(argv, ["install", "-Dm644", "/dev/stdin", target])
+            with open(target, encoding="utf-8") as f:
+                self.assertEqual(f.read(), setup.PORTAL_BODY)
+            self.assertEqual(os.stat(target).st_mode & 0o777, 0o644)
+
+    def test_failed_install_raises(self):
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaises(RuntimeError):
+                self.install(root, "exit 1\n")
 
 
 if __name__ == "__main__":

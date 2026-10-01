@@ -4,7 +4,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 
 BUS_NAME = "org.freedesktop.impl.portal.desktop.omafile"
 KEY = "org.freedesktop.impl.portal.FileChooser"
@@ -172,14 +171,8 @@ def install_system_file():
         prefix = ["sudo"]
     else:
         raise RuntimeError("need pkexec or sudo to install %s" % SYSTEM_PORTAL)
-    with tempfile.NamedTemporaryFile("w", suffix=".portal", delete=False, encoding="utf-8") as f:
-        f.write(PORTAL_BODY)
-        tmp = f.name
-    try:
-        os.chmod(tmp, 0o644)
-        result = subprocess.run(prefix + ["install", "-Dm644", tmp, SYSTEM_PORTAL], shell=False)
-    finally:
-        os.unlink(tmp)
+    result = subprocess.run(prefix + ["install", "-Dm644", "/dev/stdin", SYSTEM_PORTAL],
+                            input=PORTAL_BODY, text=True, shell=False)
     if result.returncode != 0 or read_text(SYSTEM_PORTAL) != PORTAL_BODY:
         raise RuntimeError("could not install %s" % SYSTEM_PORTAL)
 
