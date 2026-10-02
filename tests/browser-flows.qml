@@ -171,6 +171,44 @@ ShellRoot {
         compare(mock.called("beginTransfer").args[2], "/tmp")
       }
 
+      function test_3f_clipboard() {
+        waitRows()
+        pane().setSortOrder("name", false)
+        pane().setCursor(0, false, false)
+        mock.calls = []
+        keyClick(Qt.Key_X, Qt.ControlModifier)
+        compare(mock.called("setClipboard").args[0], "cut")
+        compare(mock.called("setClipboard").args[1], ["/tmp/alpha.yml"])
+        browser.setView("grid")
+        waitForRendering(browser)
+        var mark = findChild(pane(), "cutMark")
+        verify(mark !== null && mark.visible, "cut items show the scissors mark")
+
+        mock.systemClipboard = { mode: "cut", paths: ["/tmp/alpha.yml"], image: "" }
+        pane().navigate("/tmp/docs")
+        waitRows()
+        mock.calls = []
+        keyClick(Qt.Key_V, Qt.ControlModifier)
+        compare(mock.called("beginTransfer").args[0], "move")
+        compare(mock.called("beginTransfer").args[2], "/tmp/docs")
+        verify(mock.called("clearClipboard") !== null, "a cut is used up by pasting")
+
+        mock.systemClipboard = { mode: "copy", paths: [], image: "image/png" }
+        keyClick(Qt.Key_V, Qt.ControlModifier)
+        compare(mock.called("pasteImage").args[0], "/tmp/docs")
+
+        mock.systemClipboard = null
+        mock.clipboard = { mode: "copy", paths: ["/tmp/beta.png"] }
+        mock.calls = []
+        keyClick(Qt.Key_V, Qt.ControlModifier)
+        compare(mock.called("beginTransfer").args[0], "copy", "falls back to the internal clipboard")
+        mock.clipboard = { mode: "", paths: [] }
+        mock.cutPaths = ({})
+        pane().navigate("/tmp")
+        browser.setView("list")
+        waitRows()
+      }
+
       function test_4_mouseBackForward() {
         waitRows()
         pane().navigate("/tmp/docs")

@@ -526,9 +526,19 @@ Item {
   }
   function doPaste() {
     if (!service) return
-    var dest = activePane().path
+    var pane = activePane()
+    if (pane.virtualView || !pane.path) return
+    var dest = pane.path
     service.readSystemClipboard(function (sys) {
       var clip = sys || service.clipboard
+      if (clip && clip.image && (!clip.paths || clip.paths.length === 0)) {
+        service.pasteImage(dest, clip.image, function (path) {
+          root.statusText = "Pasted " + Model.basename(path)
+        }, function (m) {
+          root.statusText = String(m.message || "Could not paste the image")
+        })
+        return
+      }
       if (!clip || !clip.paths || clip.paths.length === 0) {
         root.statusText = "Nothing to paste"
         return

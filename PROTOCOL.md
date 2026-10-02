@@ -149,6 +149,7 @@ The system clipboard, through `wl-copy` and `wl-paste`. `clipset` with `mode: "c
 offers `text/uri-list`; `mode: "cut"` offers `x-special/gnome-copied-files`, which GNOME
 Files reads as a move. `clipget` replies `done` with `mode` (`copy` or `cut`) and `paths`,
 read from either type, and an empty `paths` when the clipboard holds no files.
+The `image` field names an available image MIME type when there are no files, or is empty.
 `clipclear` always replies `done`. A missing `wl-copy` or `wl-paste` is `EUNSUPPORTED`.
 
 ### samedev
@@ -340,3 +341,12 @@ Writes to stdout are serialized behind a single lock so lines never interleave.
 The helper runs with the invoking user's permissions and never escalates. It contains
 no `sudo`, no `pkexec`, no shell invocation, no network access and no third-party
 imports. Every subprocess it does spawn is a fixed argv list of a util-linux tool.
+
+### clipimage
+
+```
+{"id": N, "op": "clipimage", "dest": "/a", "type": "image/png"}
+```
+
+Saves clipboard image bytes under a unique `Pasted image` name in `dest`. Replies
+`clipimage` with `path`, then `done`. Accepts PNG, JPEG, WebP, GIF and BMP MIME types.

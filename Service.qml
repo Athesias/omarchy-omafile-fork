@@ -383,14 +383,34 @@ Item {
     })
   }
 
+  property int _clipboardRevision: 0
+  property bool _clipboardWritePending: false
+  readonly property var cutPaths: {
+    var cut = {}
+    if (clipboard && clipboard.mode === "cut")
+      for (var i = 0; i < clipboard.paths.length; i++) cut[clipboard.paths[i]] = true
+    return cut
+  }
+
   function setClipboard(mode, paths) {
+    _clipboardRevision++
     clipboard = { mode: mode, paths: paths.slice() }
-    request({ op: "clipset", mode: mode, paths: paths.slice() }, null)
+    var revision = _clipboardRevision
+    _clipboardWritePending = true
+    request({ op: "clipset", mode: mode, paths: paths.slice() }, {
+      onDone: function () { if (revision === root._clipboardRevision) root._clipboardWritePending = false },
+      onError: function () { if (revision === root._clipboardRevision) root._clipboardWritePending = false }
+    })
   }
 
   function readSystemClipboard(onDone) {
+    var revision = _clipboardRevision
     return request({ op: "clipget" }, {
-      onDone: function (m) { onDone({ mode: String(m.mode || "copy"), paths: m.paths || [] }) },
+      onDone: function (m) {
+        var result = { mode: String(m.mode || "copy"), paths: m.paths || [], image: String(m.image || "") }
+        if (revision === root._clipboardRevision) root.clipboard = result
+        onDone(result)
+      },
       onError: function () { onDone(null) }
     })
   }
@@ -407,7 +427,25 @@ Item {
   }
 
   function clearClipboard() {
+    _clipboardRevision++
+    _clipboardWritePending = false
     clipboard = { mode: "", paths: [] }
+  }
+
+  function pasteImage(dest, type, onDone, onError) {
+    var result = ""
+    return request({ op: "clipimage", dest: dest, type: type }, {
+      onData: function (m) { if (m.t === "clipimage") result = String(m.path || "") },
+      onDone: function () { if (onDone) onDone(result) },
+      onError: function (m) { if (onError) onError(m) }
+    })
+  }
+
+  property Timer clipboardRefreshTimer: Timer {
+    interval: 1000
+    repeat: true
+    running: !root._clipboardWritePending && root.clipboard && root.clipboard.mode === "cut" && root.clipboard.paths.length > 0
+    onTriggered: root.readSystemClipboard(function () {})
   }
 
   function beginTransfer(op, sources, dest, conflict) {

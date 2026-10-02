@@ -551,6 +551,12 @@ Item {
     else pane.openRequested(entry)
   }
 
+
+  function isCut(entry) {
+    if (!entry || !service || !service.cutPaths) return false
+    return service.cutPaths[entry.path] === true
+  }
+
   function thumbable(entry) {
     if (!pane.thumbnails || !pane.service || !pane.service.thumbExts) return false
     if (entry.isDir || entry.isBroken || entry.size <= 0) return false
@@ -848,6 +854,7 @@ Item {
           required property int index
 
           readonly property var entry: Model.decodeEntry(modelData, pane.path)
+          readonly property bool isCut: pane.isCut(entry)
 
           width: listView.width
           height: pane.rowHeight
@@ -932,6 +939,7 @@ Item {
                   Text {
                     anchors.centerIn: parent
                     visible: !rowThumb.visible
+                    opacity: row.isCut ? 0.3 : 1
                     text: Icons.glyphFor(row.entry)
                     color: row.entry.isBroken ? Color.urgent
                       : (row.entry.isDir ? pane.accent : Util.alpha(pane.fg, 0.75))
@@ -941,6 +949,7 @@ Item {
 
                   ThumbImage {
                     id: rowThumb
+                    opacity: row.isCut ? 0.3 : 1
                     anchors.fill: parent
                     service: pane.service
                     entry: row.entry
@@ -949,11 +958,15 @@ Item {
                     requestSize: pane.listIconSize * 2
                     sourceSize.width: Style.space(36)
                     sourceSize.height: pane.listIconSize * 2
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: true
-                    cache: true
-                    smooth: true
-                    mipmap: true
+                  }
+
+                  Text {
+                    anchors.centerIn: parent
+                    visible: row.isCut
+                    text: Icons.actionGlyph("cut")
+                    color: pane.fg
+                    font.family: Style.font.family
+                    font.pixelSize: pane.scaled(Style.font.iconSmall)
                   }
                 }
 
@@ -961,6 +974,7 @@ Item {
                   anchors.verticalCenter: parent.verticalCenter
                   width: parent.width - Style.space(28)
                   text: row.entry.name
+                  opacity: row.isCut ? 0.55 : 1
                   color: row.entry.isHidden ? Util.alpha(pane.fg, 0.55) : pane.fg
                   font.family: Style.font.family
                   font.pixelSize: pane.scaled(Style.font.body)
@@ -1031,6 +1045,7 @@ Item {
           required property int index
 
           readonly property var entry: Model.decodeEntry(modelData, pane.path)
+          readonly property bool isCut: pane.isCut(entry)
 
           width: gridView.cellWidth - (pane.compactView ? Style.space(4) : 0)
           height: gridView.cellHeight
@@ -1102,6 +1117,7 @@ Item {
               Text {
                 anchors.centerIn: parent
                 visible: !compactThumb.visible
+                opacity: cell.isCut ? 0.3 : 1
                 text: Icons.glyphFor(cell.entry)
                 color: cell.entry.isBroken ? Color.urgent
                   : (cell.entry.isDir ? pane.accent : Util.alpha(pane.fg, 0.75))
@@ -1111,6 +1127,7 @@ Item {
 
               ThumbImage {
                 id: compactThumb
+                opacity: cell.isCut ? 0.3 : 1
                 anchors.fill: parent
                 active: pane.compactView
                 service: pane.service
@@ -1120,11 +1137,15 @@ Item {
                 requestSize: pane.listIconSize * 2
                 sourceSize.width: Style.space(36)
                 sourceSize.height: pane.listIconSize * 2
-                fillMode: Image.PreserveAspectFit
-                asynchronous: true
-                cache: true
-                smooth: true
-                mipmap: true
+              }
+
+              Text {
+                anchors.centerIn: parent
+                visible: cell.isCut
+                text: Icons.actionGlyph("cut")
+                color: pane.fg
+                font.family: Style.font.family
+                font.pixelSize: pane.scaled(Style.font.iconSmall)
               }
             }
 
@@ -1132,6 +1153,7 @@ Item {
               anchors.verticalCenter: parent.verticalCenter
               width: parent.width - Style.space(26)
               text: cell.entry.name
+              opacity: cell.isCut ? 0.55 : 1
               color: cell.entry.isHidden ? Util.alpha(pane.fg, 0.55) : pane.fg
               font.family: Style.font.family
               font.pixelSize: pane.scaled(Style.font.bodySmall)
@@ -1155,6 +1177,7 @@ Item {
               Text {
                 anchors.centerIn: parent
                 visible: !thumb.visible
+                opacity: cell.isCut ? 0.3 : 1
                 text: Icons.glyphFor(cell.entry)
                 color: cell.entry.isBroken ? Color.urgent
                   : (cell.entry.isDir ? pane.accent : Util.alpha(pane.fg, 0.8))
@@ -1164,6 +1187,7 @@ Item {
 
               ThumbImage {
                 id: thumb
+                opacity: cell.isCut ? 0.3 : 1
                 anchors.centerIn: parent
                 width: parent.width
                 height: parent.height
@@ -1175,18 +1199,32 @@ Item {
                 requestSize: pane.gridIconSize * 2
                 sourceSize.width: pane.gridIconSize * 2
                 sourceSize.height: pane.gridIconSize * 2
-                fillMode: Image.PreserveAspectFit
-                asynchronous: true
-                cache: true
-                smooth: true
-                mipmap: true
+              }
+
+              Rectangle {
+                objectName: "cutMark"
+                anchors.fill: parent
+                visible: cell.isCut
+                color: "transparent"
+                radius: Style.cornerRadius
+                border.width: Math.max(1, Style.space(1))
+                border.color: Util.alpha(pane.fg, 0.45)
+
+                Text {
+                  anchors.centerIn: parent
+                  text: Icons.actionGlyph("cut")
+                  color: pane.fg
+                  font.family: Style.font.family
+                  font.pixelSize: Math.round(parent.height * 0.45)
+                }
               }
             }
 
             Text {
               width: parent.width
               horizontalAlignment: Text.AlignHCenter
-              text: pane.view === "gallery" ? cell.entry.name : pane.gridLabel(cell.entry.name)
+              text: pane.gridLabel(cell.entry.name)
+              opacity: cell.isCut ? 0.55 : 1
               color: pane.fg
               font.family: Style.font.family
               font.pixelSize: pane.scaled(Style.font.caption)

@@ -2250,6 +2250,55 @@ def is_user_volume(target, fstype):
     return False
 
 
+CLIP_TIMEOUT = 3.0
+CLIP_IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp", "image/gif", "image/bmp")
+CLIP_IMAGE_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/bmp": "bmp"}
+
+def wl_paste(args, limit=16 * 1024 * 1024):
+    try:
+        tool = trusted_program("wl-paste")
+        out = subprocess.run([tool] + args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, env=trusted_env(), timeout=CLIP_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return b""
+    return out.stdout[:limit]
+
+def unique_child(dest, stem, ext):
+    candidate = os.path.join(dest, "%s.%s" % (stem, ext))
+    n = 2
+    while os.path.lexists(candidate):
+        candidate = os.path.join(dest, "%s %d.%s" % (stem, n, ext))
+        n += 1
+    return candidate
+
+def op_clipimage(req):
+    req_id = req["id"]
+    dest = req.get("dest")
+    mime = req.get("type")
+    if not isinstance(dest, str) or mime not in CLIP_IMAGE_EXT:
+        send_error(req_id, "EINVAL", "dest and an image type are required")
+        return
+    if not os.path.isdir(to_bytes(dest)):
+        send_error(req_id, "ENOTDIR", "dest is not a directory", dest)
+        return
+    data = wl_paste(["--type", mime], limit=256 * 1024 * 1024)
+    if not data:
+        send_error(req_id, "ENOENT", "the clipboard has no image")
+        return
+    target = unique_child(dest, "Pasted image", CLIP_IMAGE_EXT[mime])
+    try:
+        fd = os.open(to_bytes(target), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e), target)
+        return
+    emit({"id": req_id, "t": "clipimage", "path": target})
+    send_done(req_id)
+
+
 def file_uri(path):
     from urllib.parse import quote
     return "file://" + quote(path, safe="/-._~!$&'()*+,;=:@")
@@ -2323,7 +2372,8 @@ def op_clipget(req):
     except (OSError, subprocess.TimeoutExpired) as e:
         send_error(req_id, "EFAIL", str(e))
         return
-    send_done(req_id, mode=mode, paths=paths)
+    send_done(req_id, mode=mode, paths=paths,
+              image="" if paths else next((mime for mime in CLIP_IMAGE_TYPES if mime in types), ""))
 
 
 def op_clipclear(req):
@@ -2656,6 +2706,7 @@ CANCELLABLE_OPS = {
 SIMPLE_OPS = {
     "clipset": op_clipset,
     "clipget": op_clipget,
+    "clipimage": op_clipimage,
     "clipclear": op_clipclear,
     "samedev": op_samedev,
     "stat": op_stat,

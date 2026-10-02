@@ -22,7 +22,7 @@ Only the latest release on `main` receives fixes.
 | Desktop entry | `~/.local/share/applications/xyzlab.omafile.desktop` | Only while Default file manager is on |
 | D-Bus service file | `~/.local/share/dbus-1/services/org.freedesktop.FileManager1.service` | Only while Default file manager is on. Overrides the system file so Show in folder reaches Omafile |
 | Default handler | `xdg-mime` for `inode/directory` | Only while Default file manager is on. Turning it off restores the previous handler |
-| Clipboard | `wl-copy`, `wl-paste` | Written when you choose Copy path, or copy or cut files. Read when you paste |
+| Clipboard | `wl-copy`, `wl-paste` | Written when you choose Copy path, or copy or cut files. Read when you paste files or images, and once per second while cut markers are active |
 | Thumbnails | `~/.cache/thumbnails` (or `$XDG_CACHE_HOME/thumbnails`) | Shared PNG cache, including source URIs and timestamps; may remain after source files are moved or deleted |
 
 ## Processes Omafile runs
@@ -38,7 +38,7 @@ Only the latest release on `main` receives fixes.
 | `gio list network:///` | Looking for servers the network advertises |
 | `xdg-mime`, `update-desktop-database` | Only when Default file manager is turned on or off |
 | `udisksctl` | Only when you eject a removable drive |
-| `wl-copy`, `wl-paste` | Only when you choose Copy path, or copy, cut or paste files |
+| `wl-copy`, `wl-paste` | Copy path, copy/cut files, paste files or images, and clipboard checks while cut markers are active |
 | `xdg-terminal-exec`, `omarchy-launch-editor` | Only when you choose Open in terminal or Open in editor |
 
 Helper tools use argument lists. Thumbnailer arguments come from trusted system `.thumbnailer` `Exec` definitions, parsed without a shell; file paths and URIs remain individual argument values. Executables resolve through `trusted_program` and launch with `trusted_env`, ignoring user `PATH` entries and injected environment variables. Thumbnailer definitions and their parent directories must be root owned, not symlinks, and not writable by group or others. Thumbnailers run unsandboxed with your permissions, so enable previews only for files you trust the installed decoders to handle.
