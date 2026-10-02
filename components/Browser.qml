@@ -1467,6 +1467,8 @@ Item {
 
         PathBar {
           id: pathBar
+          objectName: "pathBar"
+          onFilesDropped: function (urls, target) { root.handleDrop(urls, target) }
           anchors.left: navButtons.right
           anchors.right: rightControls.left
           anchors.leftMargin: Style.space(6)

@@ -133,6 +133,25 @@ ShellRoot {
         browser.closeDialog()
       }
 
+      function test_3e_breadcrumbDrops() {
+        var bar = findChild(browser, "pathBar")
+        verify(bar !== null)
+        compare(bar.crumbTarget({ path: "~" }), bar.home || "/")
+        compare(bar.crumbTarget({ path: "~/docs" }), (bar.home || "") + "/docs")
+        compare(bar.crumbTarget({ path: "/tmp" }), "/tmp")
+        mock.calls = []
+        var target = findChild(bar, "locationDrop")
+        verify(target !== null)
+        target.filesDropped(["file:///tmp/docs/inner.txt"], "/tmp")
+        compare(mock.called("beginTransfer").args[0], "move")
+        compare(mock.called("beginTransfer").args[2], "/tmp")
+        var crumb = findChild(bar, "crumbDrop0")
+        verify(crumb !== null)
+        mock.calls = []
+        crumb.filesDropped(["file:///tmp/docs/inner.txt"], "/tmp")
+        compare(mock.called("beginTransfer").args[2], "/tmp")
+      }
+
       function test_4_mouseBackForward() {
         waitRows()
         pane().navigate("/tmp/docs")

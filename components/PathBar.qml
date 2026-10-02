@@ -20,6 +20,12 @@ Item {
   readonly property bool filterFocused: filterInput.activeFocus
   readonly property bool pathFocused: pathInput.activeFocus
 
+  signal filesDropped(var urls, string target)
+
+  function crumbTarget(crumb) {
+    return Model.expandTilde(String(crumb.path || ""), bar.home)
+  }
+
   signal navigate(string target)
   signal filterEdited(string text)
   signal searchSubmitted(string text)
@@ -101,6 +107,14 @@ Item {
         width: parent.width - collapsedFilter.width
         height: parent.height
 
+        DropTarget {
+          id: locationDrop
+          objectName: "locationDrop"
+          anchors.fill: parent
+          target: bar.path.charAt(0) === "/" ? bar.path : ""
+          onFilesDropped: function (urls, target) { bar.filesDropped(urls, target) }
+        }
+
         MouseArea {
           anchors.fill: parent
           acceptedButtons: Qt.LeftButton
@@ -146,7 +160,15 @@ Item {
                   width: crumbLabel.implicitWidth + Style.space(8)
                   height: Style.space(20)
                   radius: Style.cornerRadius
-                  color: crumbHover.hovered ? Util.alpha(Color.foreground, 0.12) : "transparent"
+                  color: crumbDrop.containsDrag ? Util.alpha(Color.accent, 0.2) : crumbHover.hovered ? Util.alpha(Color.foreground, 0.12) : "transparent"
+
+                  DropTarget {
+                    id: crumbDrop
+                    objectName: "crumbDrop" + index
+                    anchors.fill: parent
+                    target: bar.virtualView ? "" : bar.crumbTarget(modelData)
+                    onFilesDropped: function (urls, target) { bar.filesDropped(urls, target) }
+                  }
 
                   HoverHandler { id: crumbHover }
 
