@@ -360,8 +360,6 @@ ShellRoot {
       function menuLabels(items) { return items.filter(function (i) { return i.label !== "" }).map(function (i) { return i.label }) }
 
       function test_3i_sidebarMenu() {
-        compare(browser.placeMenuActions({ key: "drive", path: "/mnt" }).length, 0)
-        compare(browser.placeMenuActions({ key: "usb", path: "/media/usb" }).length, 0)
         verify(menuLabels(browser.placeMenuActions({ key: "pinned", bookmark: true, label: "Work", path: "/tmp/work" })).indexOf("Remove bookmark") >= 0)
         verify(menuLabels(browser.placeMenuActions({ key: "networkdrive", label: "laptop", path: "/run/user/1000/gvfs/sftp:host=laptop", mounted: true })).indexOf("Disconnect") >= 0)
         var trash = browser.placeMenuActions({ key: "trash", label: "Trash", path: "/tmp/.trash", trash: true })
@@ -489,6 +487,61 @@ ShellRoot {
         mock.servers = []
         mock.serverSettings = ({})
         mock.connectResult = null
+      }
+
+      function test_3n_drives() {
+        mock.drives = [
+          { name: "sdb1", label: "Stick", path: "/dev/sdb1", mount: "/run/media/me/Stick", removable: true,
+            fstype: "vfat", free: 1, total: 2 },
+          { name: "sda2", label: "", path: "/dev/sda2", mount: "", removable: false, fstype: "ntfs", mountable: true },
+          { name: "sda3", label: "", path: "/dev/sda3", mount: "", removable: false, fstype: "crypto_LUKS", mountable: false },
+          { name: "boot", label: "", path: "/dev/sda1", mount: "/boot", removable: false, fstype: "vfat", free: 1, total: 2 }
+        ]
+        var drives = networkRows().drives
+        compare(drives.length, 3, "unmountable partitions are not listed")
+        var stick = drives[0], idle = drives[1], boot = drives[2]
+        compare(stick.key, "usb")
+        compare(stick.unmountable, true)
+        compare(idle.unmounted, true)
+        compare(idle.label, "sda2")
+        compare(idle.hideKey, "/dev/sda2")
+        compare(boot.unmountable, false)
+
+        compare(menuLabels(browser.placeMenuActions(idle)), ["Mount", "Hide"])
+        var labels = menuLabels(browser.placeMenuActions(stick))
+        verify(labels.indexOf("Open") >= 0)
+        verify(labels.indexOf("Unmount") >= 0)
+        verify(labels.indexOf("Eject") >= 0)
+        verify(labels.indexOf("Hide") >= 0)
+        var bootItems = browser.placeMenuActions(boot)
+        compare(bootItems.filter(function (i) { return i.label === "Unmount" })[0].disabled, true)
+        verify(menuLabels(bootItems).indexOf("Eject") < 0)
+
+        mock.calls = []
+        browser.runPlaceAction("mount", idle)
+        compare(mock.called("mountDrive").args[0], "/dev/sda2")
+        compare(pane().path, "/tmp/docs", "a mounted drive opens")
+        mock.mountResult = { error: "Not authorized" }
+        browser.runPlaceAction("mount", idle)
+        compare(browser.statusText, "Could not mount /dev/sda2: Not authorized")
+        mock.mountResult = { path: "/tmp/docs" }
+
+        pane().navigate("/run/media/me/Stick/photos")
+        mock.calls = []
+        browser.runPlaceAction("unmount", stick)
+        compare(mock.called("unmountDrive").args[0], "/dev/sdb1")
+        compare(pane().path, browser.home, "leaves the drive before unmounting")
+        browser.runPlaceAction("eject", stick)
+        compare(mock.called("ejectDrive").args[0], "/dev/sdb1")
+        mock.calls = []
+        browser.runPlaceAction("unmount", boot)
+        compare(mock.called("unmountDrive"), null, "system mounts are never unmounted")
+        browser.runPlaceAction("hidedrive", idle)
+        compare(mock.called("toggleHiddenDrive").args[0], "/dev/sda2")
+
+        mock.drives = []
+        pane().navigate("/tmp")
+        waitRows()
       }
 
       function test_3m_gridCaptions() {

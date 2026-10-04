@@ -905,8 +905,14 @@ Item {
   }
   function placeMenuActions(row) {
     var items = []
-    if (!row || row.key === "drive" || row.key === "usb" || row.unhide === true) return items
+    if (!row || row.unhide === true) return items
     var real = row.path && row.path !== "recent:"
+    if (row.unmounted === true) {
+      items.push({ key: "place:mount", label: "Mount", glyph: Icons.placeGlyph(row.key) })
+      items.push({ key: "sep-place1", label: "", glyph: "" })
+      items.push({ key: "place:hidedrive", label: "Hide", glyph: Icons.actionGlyph("hidden") })
+      return items
+    }
     if (row.server === true || row.connect === true) {
       items.push({ key: "place:connect", label: "Connect", glyph: Icons.placeGlyph("network") })
       if (row.remembered === true && row.uri)
@@ -925,6 +931,14 @@ Item {
     }
     if (row.mounted === true)
       extra.push({ key: "place:disconnect", label: "Disconnect", glyph: Icons.actionGlyph("eject") })
+    if (row.key === "drive" || row.key === "usb") {
+      extra.push({ key: "place:unmount", label: "Unmount", glyph: Icons.actionGlyph("eject"),
+        disabled: row.unmountable !== true })
+      if (row.removable === true)
+        extra.push({ key: "place:eject", label: "Eject", glyph: Icons.actionGlyph("eject") })
+    }
+    if (row.hideKey)
+      extra.push({ key: "place:hidedrive", label: "Hide", glyph: Icons.actionGlyph("hidden") })
     if (row.connected === true && row.remembered === true && row.uri)
       extra.push({ key: "place:forget", label: "Forget this server", glyph: Icons.actionGlyph("close") })
     if (row.trash === true)
@@ -970,6 +984,10 @@ Item {
       statusText = "Forgot " + String(row.label || row.uri || "")
     }
     else if (action === "disconnect") service.disconnectServer(path, null, null)
+    else if (action === "mount") mountDriveAndOpen(String(row.device || ""))
+    else if (action === "unmount") unmountDriveRow(row, false)
+    else if (action === "eject") unmountDriveRow(row, true)
+    else if (action === "hidedrive") service.toggleHiddenDrive(String(row.hideKey || ""))
     else if (action === "emptytrash") askEmptyTrash()
     else if (action === "copypath") {
       service.copyToClipboardText(path)
@@ -978,6 +996,31 @@ Item {
     else if (action === "properties") showPlaceProperties(row)
     else if (action === "connect") openServer(String(row.uri || ""))
     else if (action === "editserver") showDialog("connect", "Connect to a server", String(row.uri || ""), null)
+  }
+  function driveNotice(title, m) {
+    var detail = String((m && m.message) || "")
+    statusText = detail ? title + ": " + detail : title
+  }
+  function mountDriveAndOpen(device) {
+    if (!service || !device) return
+    service.mountDrive(device, function (m) {
+      if (m.path) root.activePane().navigate(String(m.path))
+    }, function (m) {
+      root.driveNotice("Could not mount " + device, m)
+    })
+  }
+  function unmountDriveRow(row, powerOff) {
+    if (!service || row.unmountable !== true) return
+    var mount = String(row.path)
+    var p = activePane()
+    if (p && (p.path === mount || p.path.indexOf(mount + "/") === 0)) p.navigate(home)
+    if (powerOff === true) {
+      service.ejectDrive(row.device)
+      return
+    }
+    service.unmountDrive(row.device, null, function (m) {
+      root.driveNotice("Could not unmount " + mount, m)
+    })
   }
   function bookmarkFolders(paths) {
     service.statPaths(paths, function (items) {
@@ -1887,6 +1930,7 @@ Item {
           onRemoveBookmark: function (target) { root.service.togglePinned(target) }
           onDropRequested: function (urls, dest, position) { root.handleDrop(urls, dest, position) }
           onHideDrive: function (key) { root.service.toggleHiddenDrive(key) }
+          onMountDrive: function (device) { root.mountDriveAndOpen(device) }
           onPlaceMenuRequested: function (row, x, y) { root.openPlaceMenu(row, x, y) }
           onBookmarkDropped: function (paths) { root.bookmarkFolders(paths) }
           onShowAllDrives: root.showDialog("settings", "Settings", "", null)
