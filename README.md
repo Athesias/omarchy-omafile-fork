@@ -116,7 +116,7 @@ Right click places, bookmarks and network entries for a menu: open here or in an
 
 Recent lists the files you opened most recently, newest first, from the same history the rest of the desktop uses. Opening one goes straight to the file. There is no folder above it, so leave by picking a place or a bookmark.
 
-Hover a drive and click the eye to hide it. Hidden drives come back from Settings.
+Unmounted partitions are listed greyed out, and clicking one mounts it through udisks and opens it. Right click a drive to open it, mount, unmount, eject or hide it. System mounts such as `/boot` can't be unmounted from here. Hover a drive and click the eye to hide it. Hidden drives come back from Settings.
 
 ### Network drives
 

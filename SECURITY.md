@@ -45,7 +45,7 @@ Only the latest release on `main` receives fixes.
 | `bin/omafile-portal-setup` | Only when Pick files for other apps is turned on or off |
 | `pkexec install`, or `sudo install` from a terminal | Once, when Pick files for other apps is turned on and `omafile.portal` is missing or different |
 | `gdbus` `ReloadConfig`, `systemctl --user restart xdg-desktop-portal.service` | When Pick files for other apps is turned on or off, so the portal picks up the change |
-| `udisksctl` | Only when you eject a removable drive |
+| `udisksctl` | Only when you mount, unmount or eject a drive |
 | `wl-copy`, `wl-paste` | Copy path, copy/cut files, paste files or images, and clipboard checks while cut markers are active |
 | `xdg-terminal-exec`, `omarchy-launch-editor` | Only when you choose Open in terminal or Open in editor |
 

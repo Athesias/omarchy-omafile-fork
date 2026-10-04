@@ -994,6 +994,32 @@ Item {
     Quickshell.execDetached(["sh", "-c", "printf %s \"$1\" | wl-copy", "omafile", String(text)])
   }
 
+  function mountDrive(devicePath, onDone, onError) {
+    return request({ op: "mountdev", device: String(devicePath) }, {
+      onDone: function (m) {
+        root.refreshDrives()
+        if (onDone) onDone(m)
+      },
+      onError: function (m) {
+        root.refreshDrives()
+        if (onError) onError(m)
+      }
+    })
+  }
+
+  function unmountDrive(devicePath, onDone, onError) {
+    return request({ op: "unmountdev", device: String(devicePath) }, {
+      onDone: function (m) {
+        root.refreshDrives()
+        if (onDone) onDone(m)
+      },
+      onError: function (m) {
+        root.refreshDrives()
+        if (onError) onError(m)
+      }
+    })
+  }
+
   function ejectDrive(devicePath) {
     Quickshell.execDetached(["sh", "-c",
       "udisksctl unmount -b \"$1\" && udisksctl power-off -b \"$1\"", "omafile", String(devicePath)])

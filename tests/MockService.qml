@@ -87,6 +87,14 @@ QtObject {
     if (onDone) onDone({ results: names.map(function (n) { return { path: n, ok: true } }) })
   }
   function toggleHiddenDrive(key) { record("toggleHiddenDrive", [key]) }
+  property var mountResult: ({ path: "/tmp/docs" })
+  function mountDrive(device, onDone, onError) {
+    record("mountDrive", [device])
+    if (mountResult.error) { if (onError) onError({ message: mountResult.error }) }
+    else if (onDone) onDone(mountResult)
+  }
+  function unmountDrive(device, onDone, onError) { record("unmountDrive", [device]); if (onDone) onDone({}) }
+  function ejectDrive(device) { record("ejectDrive", [device]) }
   function togglePinned(path) { record("togglePinned", [path]) }
   property var bookmarkLabels: ({})
   function bookmarkLabel(path) { return bookmarkLabels[path] || String(path).split("/").pop() }
