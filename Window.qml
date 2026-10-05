@@ -34,6 +34,7 @@ Item {
   onPickRequestChanged: {
     pickerShown = null
     if (!pickRequest) return
+    if (host.asPopup && host.shown) host.requestClose()
     Hyprland.dispatch(host.pickerRuleCommand())
     pickerTimer.restart()
   }
