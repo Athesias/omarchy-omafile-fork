@@ -1235,13 +1235,13 @@ Item {
     if (!parsed || typeof parsed.result !== "string" || parsed.result === "") return "result path required"
     if (pickRequest) writePickResult(pickRequest.result, { ok: false })
     pickRequest = parsed
-    if (shell) shell.summon(pluginId, JSON.stringify({ pick: true }))
     return "ok"
   }
 
-  function finishPick(result) {
+  function finishPick(result, request) {
     var current = pickRequest
     if (!current) return
+    if (request && String(request.result) !== String(current.result)) return
     pickRequest = null
     writePickResult(current.result, result || { ok: false })
   }
@@ -1250,7 +1250,6 @@ Item {
     if (!pickRequest) return
     if (resultPath && String(resultPath) !== String(pickRequest.result)) return
     pickRequest = null
-    if (shell && typeof shell.hide === "function") shell.hide(pluginId)
   }
 
   function refreshFilePicker() {

@@ -711,7 +711,10 @@ ShellRoot {
 
       function test_7_pickOpen() {
         waitRows()
-        mock.pickRequest = { mode: "open", multiple: false, directory: false, result: "/run/x.json",
+        mock.pickRequest = { mode: "open", result: "/run/v.json" }
+        verify(!browser.picking, "a portal request leaves an open window alone")
+        mock.pickRequest = null
+        browser.pickerRequest = { mode: "open", multiple: false, directory: false, result: "/run/x.json",
           filters: [{ name: "Images", patterns: ["*.png"] }, { name: "All", patterns: ["*"] }], currentFilter: 0 }
         browser.beginPickSession()
         verify(findChild(browser, "pickBar").visible)
@@ -728,19 +731,20 @@ ShellRoot {
         compare(call.args[0].ok, true)
         compare(call.args[0].paths[0], "/tmp/beta.png")
         compare(call.args[0].filter, 1)
+        compare(call.args[1].result, "/run/x.json")
         verify(!browser.picking)
       }
 
       function test_8_pickSaveAndCancel() {
         mock.calls = []
-        mock.pickRequest = { mode: "save", result: "/run/y.json", currentFolder: "/tmp", currentName: "new.txt", filters: [] }
+        browser.pickerRequest = { mode: "save", result: "/run/y.json", currentFolder: "/tmp", currentName: "new.txt", filters: [] }
         browser.beginPickSession()
         tryVerify(function () { return !pane().loading && pane().rows.length === 3 })
         waitForRendering(browser)
         mouseClick(findChild(browser, "pickAccept"))
         compare(mock.called("finishPick").args[0].paths[0], "/tmp/new.txt")
         mock.calls = []
-        mock.pickRequest = { mode: "save", result: "/run/z.json", currentFolder: "/tmp", currentName: "alpha.yml" }
+        browser.pickerRequest = { mode: "save", result: "/run/z.json", currentFolder: "/tmp", currentName: "alpha.yml" }
         browser.beginPickSession()
         tryVerify(function () { return !pane().loading && pane().rows.length === 3 })
         waitForRendering(browser)
@@ -752,7 +756,7 @@ ShellRoot {
         keyClick(Qt.Key_Return)
         compare(mock.called("finishPick").args[0].paths[0], "/tmp/alpha.yml")
         mock.calls = []
-        mock.pickRequest = { mode: "open", result: "/run/w.json" }
+        browser.pickerRequest = { mode: "open", result: "/run/w.json" }
         browser.beginPickSession()
         waitForRendering(browser)
         keyClick(Qt.Key_Escape)
