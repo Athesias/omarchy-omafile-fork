@@ -120,7 +120,7 @@ QtObject {
   function openExternally(path) { record("openExternally", [path]) }
   function thumbnailFor(path, mtime, bucket, onReady) { record("thumbnailFor", [path, mtime, bucket]); onReady(""); return null }
   function releaseThumbnail(ticket) {}
-  function finishPick(result) { record("finishPick", [result]); pickRequest = null }
+  function finishPick(result, request) { record("finishPick", [result, request]); pickRequest = null }
   property var systemClipboard: null
   property bool sameDrive: true
   function readSystemClipboard(onDone) { onDone(systemClipboard) }

@@ -17,6 +17,9 @@ Item {
   signal closeRequested()
   signal dismissRequested()
 
+  property bool pickerWindow: false
+  property var pickerRequest: null
+
   property bool split: false
   property int activeSide: 0
   property bool sidebarVisible: true
@@ -290,7 +293,7 @@ Item {
     return activeSide === 1 ? 0 : 1
   }
   function rememberSession() {
-    if (!service || !sessionRestored) return
+    if (!service || !sessionRestored || pickerWindow) return
     storeCurrentTab(activeSide)
     service.rememberSession({
       split: split, activeSide: activeSide, sidebar: sidebarVisible,
@@ -298,7 +301,7 @@ Item {
     })
   }
   function restoreSession() {
-    var s = service ? service.session : null
+    var s = service && !pickerWindow ? service.session : null
     if (s && s.tabsA && s.tabsA.length > 0) {
       tabsA = s.tabsA
       activeA = Math.max(0, Math.min(s.tabsA.length - 1, Number(s.activeA) || 0))
@@ -350,19 +353,25 @@ Item {
     root.closeRequested()
   }
   function requestClose() {
-    if (picking) service.finishPick({ ok: false })
+    if (pickerRequest) answerPick({ ok: false })
     rememberSession()
     root.dismissRequested()
   }
 
-  readonly property var pick: service ? service.pickRequest : null
+  readonly property var pick: pickerRequest
   readonly property bool picking: pick !== null && pick !== undefined
   readonly property bool pickSaving: picking && (pick.mode === "save" || pick.mode === "savefiles")
   readonly property bool pickNeedsName: picking && pick.mode === "save"
   property int pickFilter: -1
 
   Component.onDestruction: {
-    if (service && service.pickRequest) service.finishPick({ ok: false })
+    if (pickerRequest) answerPick({ ok: false })
+  }
+
+  function answerPick(result) {
+    var request = pickerRequest
+    pickerRequest = null
+    if (service && request) service.finishPick(result, request)
   }
 
   function pickFilters() {
@@ -416,14 +425,14 @@ Item {
 
   function completePick(paths) {
     if (!picking) return
-    service.finishPick({ ok: true, paths: paths, filter: pickFilter })
+    answerPick({ ok: true, paths: paths, filter: pickFilter })
     rememberSession()
     root.dismissRequested()
   }
 
   function cancelPick() {
     if (!picking) return
-    service.finishPick({ ok: false })
+    answerPick({ ok: false })
     rememberSession()
     root.dismissRequested()
   }

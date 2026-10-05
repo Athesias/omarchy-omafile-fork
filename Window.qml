@@ -27,6 +27,32 @@ Item {
   property string raiseTitle: "Omafile"
   property string raiseAnchor: ""
   property int raiseStep: 0
+  readonly property string pickerTitle: "Omafile file chooser"
+  readonly property var pickRequest: service ? service.pickRequest : null
+  property var pickerShown: null
+
+  onPickRequestChanged: {
+    pickerShown = null
+    if (!pickRequest) return
+    if (host.asPopup && host.shown) host.requestClose()
+    Hyprland.dispatch(host.pickerRuleCommand())
+    pickerTimer.restart()
+  }
+
+  Component.onCompleted: Hyprland.dispatch(host.pickerRuleCommand())
+
+  function pickerRuleCommand() {
+    return "(function() hl.window_rule({ name = \"omafile-pick\", "
+      + "match = { class = \"^org.quickshell$\", title = \"^" + host.pickerTitle + "$\" }, "
+      + "float = true, center = true }) "
+      + "return hl.dsp.cursor.move(hl.get_cursor_pos()) end)()"
+  }
+
+  function pickerFocusCommand() {
+    return "(function() local p = hl.get_cursor_pos() "
+      + "hl.dispatch(hl.dsp.focus({ window = \"title:^" + host.pickerTitle + "$\" })) "
+      + "return hl.dsp.cursor.move(p) end)()"
+  }
 
   function normalizePayload(payloadJson) {
     return payloadJson && String(payloadJson).length > 0 ? String(payloadJson) : "{}"
@@ -132,6 +158,13 @@ Item {
   }
 
   Timer {
+    id: pickerTimer
+    interval: 60
+    repeat: false
+    onTriggered: host.pickerShown = host.pickRequest
+  }
+
+  Timer {
     id: raiseTimer
     interval: 90
     repeat: false
@@ -182,6 +215,49 @@ Item {
           host.browsers[window.slot] = item
           item.open(host.slotPayloads[window.slot] || "{}")
         }
+      }
+    }
+  }
+
+  Instantiator {
+    model: host.pickerShown ? [host.pickerShown] : []
+
+    delegate: FloatingWindow {
+      id: pickerWindow
+      required property var modelData
+      visible: true
+      title: host.pickerTitle
+      color: Color.background
+      implicitWidth: 1100
+      implicitHeight: 720
+      minimumSize: Qt.size(640, 420)
+
+      function cancel() {
+        var request = pickerWindow.modelData
+        Qt.callLater(function () {
+          if (host.service) host.service.finishPick({ ok: false }, request)
+        })
+      }
+
+      onVisibleChanged: if (!visible) pickerWindow.cancel()
+
+      Browser {
+        anchors.fill: parent
+        shell: host.shell
+        manifest: host.manifest
+        service: host.service
+        pickerWindow: true
+        pickerRequest: pickerWindow.modelData
+        onDismissRequested: pickerWindow.cancel()
+        onCloseRequested: pickerWindow.cancel()
+        Component.onCompleted: open(JSON.stringify({ pick: true }))
+      }
+
+      Timer {
+        interval: 90
+        running: true
+        repeat: false
+        onTriggered: Hyprland.dispatch(host.pickerFocusCommand())
       }
     }
   }
