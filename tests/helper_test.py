@@ -5,6 +5,8 @@ import os
 import queue
 import shutil
 import stat
+import pwd
+import grp
 import subprocess
 import sys
 import tempfile
@@ -228,6 +230,127 @@ class StatTests(HelperTestCase):
         self.assertEqual(items[0]["size"], 11)
         self.assertEqual(items[1]["kind"], "l")
         self.assertEqual(items[1]["linkTarget"], target)
+
+class PermissionTests(HelperTestCase):
+    def test_chmod_sets_and_clears_bits(self):
+        target = self.path("script.sh")
+        with open(target, "w") as f:
+            f.write("x")
+        os.chmod(target, 0o644)
+        msgs = self.helper.call({"id": self.next_id(), "op": "chmod", "path": target,
+                                 "set": 0o111, "clear": 0o022})
+        self.assertEqual(msgs[-1]["t"], "done")
+        self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o755 & ~0o022 | 0o644 & 0o4)
+
+    def test_chmod_recursive_keeps_other_bits(self):
+        folder = self.path("tree")
+        os.makedirs(os.path.join(folder, "sub"))
+        inner = os.path.join(folder, "sub", "a.txt")
+        with open(inner, "w") as f:
+            f.write("x")
+        os.chmod(inner, 0o640)
+        self.helper.call({"id": self.next_id(), "op": "chmod", "path": folder,
+                          "set": 0o004, "clear": 0, "recursive": True})
+        self.assertEqual(stat.S_IMODE(os.stat(inner).st_mode), 0o644)
+
+    def test_chmod_rejects_missing_masks(self):
+        msgs = self.helper.call({"id": self.next_id(), "op": "chmod", "path": self.path("x")})
+        self.assertEqual(msgs[-1]["code"], "EINVAL")
+
+    def test_chown_to_self_succeeds(self):
+        target = self.path("mine.txt")
+        with open(target, "w") as f:
+            f.write("x")
+        user = pwd.getpwuid(os.geteuid()).pw_name
+        msgs = self.helper.call({"id": self.next_id(), "op": "chown", "path": target, "owner": user})
+        self.assertEqual(msgs[-1]["t"], "done")
+
+    def test_chown_unknown_user_fails(self):
+        target = self.path("mine.txt")
+        with open(target, "w") as f:
+            f.write("x")
+        msgs = self.helper.call({"id": self.next_id(), "op": "chown", "path": target,
+                                 "owner": "no-such-user-here"})
+        self.assertEqual(msgs[-1]["code"], "EINVAL")
+
+    def test_opener_reports_mime(self):
+        target = self.path("notes.txt")
+        with open(target, "w") as f:
+            f.write("x")
+        msgs = self.helper.call({"id": self.next_id(), "op": "opener", "path": target})
+        opener = [m for m in msgs if m["t"] == "opener"][0]
+        self.assertEqual(opener["mime"], "text/plain")
+
+    def test_setopener_rejects_bad_input(self):
+        msgs = self.helper.call({"id": self.next_id(), "op": "setopener",
+                                 "mime": "text/plain", "handler": "../evil"})
+        self.assertEqual(msgs[-1]["code"], "EINVAL")
+        msgs = self.helper.call({"id": self.next_id(), "op": "setopener",
+                                 "mime": "inode/directory", "handler": "other.desktop"})
+        self.assertEqual(msgs[-1]["code"], "EINVAL", "the folder handler is never changed here")
+        msgs = self.helper.call({"id": self.next_id(), "op": "setopener",
+                                 "mime": "-x/y", "handler": "app.desktop"})
+        self.assertEqual(msgs[-1]["code"], "EINVAL")
+
+    @unittest.skipUnless(os.path.isfile("/usr/bin/gio"), "gio is not installed")
+    def test_opener_uses_the_type_gio_open_uses(self):
+        target = self.path("readme.md")
+        with open(target, "w") as f:
+            f.write("# title\n")
+        msgs = self.helper.call({"id": self.next_id(), "op": "opener", "path": target})
+        opener = [m for m in msgs if m["t"] == "opener"][0]
+        self.assertEqual(opener["mime"], "text/markdown")
+
+    @unittest.skipUnless(os.path.isfile("/usr/bin/gio"), "gio is not installed")
+    def test_setopener_saves_the_default_where_gio_reads_it(self):
+        config = self.path("config")
+        apps = self.path("data", "applications")
+        os.makedirs(config)
+        os.makedirs(apps)
+        with open(os.path.join(apps, "omafile-test-viewer.desktop"), "w") as f:
+            f.write("[Desktop Entry]\nType=Application\nName=Viewer\nExec=true %f\nMimeType=text/markdown;\n")
+        self.helper.close()
+        self.helper = Helper(env={"XDG_CONFIG_HOME": config, "XDG_DATA_HOME": self.path("data")})
+        msgs = self.helper.call({"id": self.next_id(), "op": "setopener",
+                                 "mime": "text/markdown", "handler": "omafile-test-viewer.desktop"})
+        self.assertEqual(msgs[-1]["t"], "done", msgs[-1])
+        with open(os.path.join(config, "mimeapps.list")) as f:
+            self.assertIn("text/markdown=omafile-test-viewer.desktop", f.read())
+        target = self.path("readme.md")
+        with open(target, "w") as f:
+            f.write("# title\n")
+        msgs = self.helper.call({"id": self.next_id(), "op": "opener", "path": target})
+        self.assertEqual([m for m in msgs if m["t"] == "opener"][0]["handler"], "omafile-test-viewer.desktop")
+
+    def test_recursive_chmod_never_follows_a_symlink(self):
+        outside = self.path("outside.txt")
+        with open(outside, "w") as f:
+            f.write("x")
+        os.chmod(outside, 0o600)
+        os.makedirs(self.path("tree"))
+        with open(self.path("tree", "inner.txt"), "w") as f:
+            f.write("x")
+        os.chmod(self.path("tree", "inner.txt"), 0o600)
+        os.symlink(outside, self.path("tree", "link"))
+        msgs = self.helper.call({"id": self.next_id(), "op": "chmod", "path": self.path("tree"),
+                                 "set": 0o044, "clear": 0, "recursive": True})
+        self.assertEqual(msgs[-1]["t"], "done")
+        self.assertEqual(stat.S_IMODE(os.stat(self.path("tree", "inner.txt")).st_mode), 0o644)
+        self.assertEqual(stat.S_IMODE(os.stat(outside).st_mode), 0o600)
+
+    def test_stat_reports_disk_usage(self):
+        target = self.path("disk.txt")
+        with open(target, "w") as f:
+            f.write("x")
+        msgs = self.helper.call({"id": self.next_id(), "op": "stat", "paths": [target]})
+        item = [m for m in msgs if m["t"] == "stat"][0]["items"][0]
+        self.assertGreaterEqual(item["disk"], 1)
+
+    def test_identity_lists_groups(self):
+        msgs = self.helper.call({"id": self.next_id(), "op": "identity"})
+        ident = [m for m in msgs if m["t"] == "identity"][0]
+        self.assertEqual(ident["uid"], os.geteuid())
+        self.assertIn(grp.getgrgid(os.getegid()).gr_name, ident["groups"])
 
 class PeekTests(HelperTestCase):
     def peek(self, path, limit=None):

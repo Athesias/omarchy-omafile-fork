@@ -374,7 +374,7 @@ def op_stat(req):
                 "mtime": int(lst.st_mtime), "atime": int(lst.st_atime),
                 "ctime": int(lst.st_ctime), "mode": lst.st_mode,
                 "uid": lst.st_uid, "gid": lst.st_gid, "owner": owner, "group": group,
-                "nlink": lst.st_nlink, "inode": lst.st_ino, "dev": lst.st_dev,
+                "nlink": lst.st_nlink, "disk": lst.st_blocks * 512, "inode": lst.st_ino, "dev": lst.st_dev,
                 "mime": mime, "linkTarget": link_target,
             })
         except OSError as e:
@@ -1183,6 +1183,183 @@ def op_rename(req):
         send_done(req_id, path=to_str(dst))
     except OSError as e:
         send_error(req_id, errno_code(e), e.strerror or str(e), path)
+
+def walk_targets(path_bytes, recursive):
+    yield path_bytes
+    if not recursive:
+        return
+    try:
+        if not stat.S_ISDIR(os.lstat(path_bytes).st_mode):
+            return
+    except OSError:
+        return
+    for dirpath, dirnames, filenames in os.walk(path_bytes, followlinks=False):
+        for name in dirnames + filenames:
+            yield os.path.join(dirpath, name)
+
+def op_identity(req):
+    req_id = req["id"]
+    uid = os.geteuid()
+    try:
+        user = pwd.getpwuid(uid).pw_name
+    except KeyError:
+        user = str(uid)
+    groups = []
+    for gid in list(os.getgroups()) + [os.getegid()]:
+        try:
+            groups.append(grp.getgrgid(gid).gr_name)
+        except KeyError:
+            groups.append(str(gid))
+    reply = {"id": req_id, "t": "identity", "uid": uid, "user": user,
+             "groups": sorted(set(groups)), "root": uid == 0}
+    if uid == 0:
+        reply["users"] = sorted(p.pw_name for p in pwd.getpwall())
+        reply["groups"] = sorted(g.gr_name for g in grp.getgrall())
+    emit(reply)
+    send_done(req_id)
+
+def op_chmod(req):
+    req_id = req["id"]
+    path = req.get("path")
+    add = req.get("set")
+    drop = req.get("clear")
+    if not isinstance(path, str) or not isinstance(add, int) or not isinstance(drop, int):
+        send_error(req_id, "EINVAL", "path, set and clear required")
+        return
+    mask = 0o7777
+    add &= mask
+    drop &= mask
+    changed = 0
+    try:
+        for target in walk_targets(to_bytes(path), bool(req.get("recursive"))):
+            fd = os.open(target, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
+            try:
+                lst = os.fstat(fd)
+                if stat.S_ISLNK(lst.st_mode):
+                    continue
+                current = stat.S_IMODE(lst.st_mode)
+                updated = (current | add) & ~drop & mask
+                if updated != current:
+                    os.chmod("/proc/self/fd/%d" % fd, updated)
+                    changed += 1
+            finally:
+                os.close(fd)
+        send_done(req_id, path=path, changed=changed)
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e), path)
+
+def lookup_owner(name):
+    if isinstance(name, int):
+        return name
+    try:
+        return pwd.getpwnam(name).pw_uid
+    except KeyError:
+        if name.isdigit():
+            return int(name)
+        raise OSError(errno.EINVAL, "unknown user " + name)
+
+def lookup_group(name):
+    if isinstance(name, int):
+        return name
+    try:
+        return grp.getgrnam(name).gr_gid
+    except KeyError:
+        if name.isdigit():
+            return int(name)
+        raise OSError(errno.EINVAL, "unknown group " + name)
+
+def op_chown(req):
+    req_id = req["id"]
+    path = req.get("path")
+    owner = req.get("owner")
+    group = req.get("group")
+    if not isinstance(path, str) or (owner is None and group is None):
+        send_error(req_id, "EINVAL", "path and owner or group required")
+        return
+    try:
+        uid = lookup_owner(owner) if owner is not None else -1
+        gid = lookup_group(group) if group is not None else -1
+        changed = 0
+        for target in walk_targets(to_bytes(path), bool(req.get("recursive"))):
+            os.lchown(target, uid, gid)
+            changed += 1
+        send_done(req_id, path=path, changed=changed)
+    except OSError as e:
+        send_error(req_id, errno_code(e), e.strerror or str(e), path)
+
+MIME_TYPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]*/[A-Za-z0-9][A-Za-z0-9.+_-]*$")
+DESKTOP_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]*\.desktop$")
+MIME_ENV_PASSTHROUGH = ("XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "XDG_DATA_HOME", "XDG_DATA_DIRS")
+
+
+def run_gio_mime(args):
+    extra = {key: os.environ[key] for key in MIME_ENV_PASSTHROUGH if os.environ.get(key)}
+    return run_trusted("gio", args, timeout=10, extra_env=extra)
+
+
+def gio_content_type(path):
+    try:
+        proc = run_gio_mime(["info", "-a", "standard::content-type", path])
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    for line in (proc.stdout or "").splitlines():
+        key, _, value = line.strip().partition(": ")
+        if key == "standard::content-type" and MIME_TYPE_RE.match(value.strip()):
+            return value.strip()
+    return ""
+
+
+def gio_default_app(mime):
+    try:
+        proc = run_gio_mime(["mime", mime])
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    for line in (proc.stdout or "").splitlines():
+        if line.startswith("Default application for"):
+            handler = line.rpartition(": ")[2].strip()
+            return handler if DESKTOP_ID_RE.match(handler) else ""
+    return ""
+
+
+def op_opener(req):
+    req_id = req["id"]
+    path = req.get("path")
+    if not isinstance(path, str) or not os.path.isabs(path):
+        send_error(req_id, "EINVAL", "absolute path required")
+        return
+    mime = gio_content_type(path)
+    if not mime:
+        mime = mimetypes.guess_type(to_str(os.path.basename(to_bytes(path))))[0] or ""
+    handler = gio_default_app(mime) if mime else ""
+    emit({"id": req_id, "t": "opener", "mime": mime, "handler": handler})
+    send_done(req_id)
+
+
+def op_setopener(req):
+    req_id = req["id"]
+    mime = req.get("mime")
+    handler = req.get("handler")
+    if (not isinstance(mime, str) or not isinstance(handler, str)
+            or not MIME_TYPE_RE.match(mime) or not DESKTOP_ID_RE.match(handler)
+            or mime == "inode/directory"):
+        send_error(req_id, "EINVAL", "mime and handler required")
+        return
+    try:
+        proc = run_gio_mime(["mime", mime, handler])
+    except FileNotFoundError:
+        send_error(req_id, "EUNSUPPORTED", "gio is not installed")
+        return
+    except subprocess.TimeoutExpired:
+        send_error(req_id, "ETIMEDOUT", "gio mime timed out")
+        return
+    if proc.returncode != 0:
+        send_error(req_id, "EINTERNAL", (proc.stderr or proc.stdout or "gio mime failed").strip())
+        return
+    send_done(req_id, mime=mime, handler=handler)
 
 def op_symlink(req):
     req_id = req["id"]
@@ -1995,15 +2172,18 @@ def kill_process_group(proc):
         pass
 
 
-def run_trusted(name, args, stdin_text=None, timeout=30, limit=MAX_CAPTURE_BYTES):
+def run_trusted(name, args, stdin_text=None, timeout=30, limit=MAX_CAPTURE_BYTES, extra_env=None):
     program = trusted_program(name)
     argv = [program] + list(args)
+    env = trusted_env()
+    if extra_env:
+        env.update(extra_env)
     proc = subprocess.Popen(
         argv,
         stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env=trusted_env(),
+        env=env,
         shell=False,
         close_fds=True,
         start_new_session=True)
@@ -2993,6 +3173,11 @@ SIMPLE_OPS = {
     "mkdir": op_mkdir,
     "mkfile": op_mkfile,
     "rename": op_rename,
+    "identity": op_identity,
+    "opener": op_opener,
+    "setopener": op_setopener,
+    "chmod": op_chmod,
+    "chown": op_chown,
     "symlink": op_symlink,
     "freespace": op_freespace,
     "drives": op_drives,
